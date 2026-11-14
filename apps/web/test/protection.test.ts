@@ -30,6 +30,31 @@ const protectionRequests = (world: World) =>
 const levelOffOf = async (world: World, connectionId: string) =>
 	(await world.findingRows(connectionId)).filter((row) => row.kind === "security_level_off");
 
+/**
+ * A `security_level_off` finding as an earlier Guard raised it, for a scan to find open. The kind
+ * was dropped when the security level came to mean only Under Attack mode.
+ */
+async function openOldLevelFinding(
+	world: World,
+	connectionId: string,
+	account: string,
+	zone: FakeZone,
+) {
+	await world.guard.db
+		.prepare(
+			`INSERT INTO finding (id, organization_id, connection_id, fingerprint, source, severity, kind, subject, title, url, first_seen_at, last_seen_at)
+			VALUES (?1, ?2, ?3, ?4, 'cloudflare', 'low', 'security_level_off', ?5, 'The security level is Essentially Off', 'https://dash.cloudflare.com/x', 1, 1)`,
+		)
+		.bind(
+			crypto.randomUUID(),
+			world.workspaceId,
+			connectionId,
+			`protection:${account}:security_level_off:${zone.id}`,
+			zone.name,
+		)
+		.run();
+}
+
 async function connect(world: World, n: number, zones: (account: string) => FakeZone[]) {
 	const account = nextAccount();
 	const token = cloudflareToken(n);
@@ -283,7 +308,7 @@ describe("the rules and what Traffic recorded of them", () => {
 	});
 });
 
-describe("the security level finding", () => {
+describe("the old security level finding", () => {
 	let world: World;
 	beforeAll(async () => {
 		world = await startWorld();
@@ -292,69 +317,47 @@ describe("the security level finding", () => {
 		await world?.dispose();
 	});
 
-	it("is raised when the level is essentially off, once, and resolves when it changes", async () => {
-		const { account, connection, zones } = await connect(world, 70, (acct) => [
+	it("is no longer raised, whatever the level, and Under Attack mode raises nothing either", async () => {
+		const { connection } = await connect(world, 70, (acct) => [
 			world.upstream.addZone(acct, "open.example", { securityLevel: "essentially_off" }),
-			world.upstream.addZone(acct, "fine.example", { securityLevel: "medium" }),
+			world.upstream.addZone(acct, "attacked.example", { securityLevel: "under_attack" }),
 		]);
-		const zone = zones[0] as FakeZone;
 
-		const [found] = await levelOffOf(world, connection.id);
-		expect(await levelOffOf(world, connection.id)).toHaveLength(1);
-		expect(found?.fingerprint).toBe(`protection:${account}:security_level_off:${zone.id}`);
-		expect(found?.severity).toBe("low");
-		expect(found?.subject).toBe("open.example");
-		expect(found?.title).toContain("open.example");
-		expect(found?.url).toBe(
-			`https://dash.cloudflare.com/${account}/open.example/security/settings`,
-		);
-		expect(found?.resolved_at).toBeNull();
-		expect((await world.findings()).body.findings.map((one) => one.kind)).toContain(
+		expect(await levelOffOf(world, connection.id)).toEqual([]);
+		expect((await world.findings()).body.findings.map((one) => one.kind)).not.toContain(
 			"security_level_off",
 		);
-
-		await world.scanDue([connection.id]);
-		const again = await levelOffOf(world, connection.id);
-		expect(again).toHaveLength(1);
-		expect(again[0]?.id).toBe(found?.id);
-
-		zone.securityLevel = "medium";
-		await world.scanDue([connection.id]);
-		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).not.toBeNull();
 	});
 
-	it("is held while the level cannot be read, and judged again when it can", async () => {
-		const { connection, zones } = await connect(world, 71, (acct) => [
-			world.upstream.addZone(acct, "held.example", { securityLevel: "essentially_off" }),
+	it("resolves on the next scan when an earlier Guard left it open", async () => {
+		const { account, connection, zones } = await connect(world, 71, (acct) => [
+			world.upstream.addZone(acct, "stale.example", { securityLevel: "essentially_off" }),
 		]);
 		const zone = zones[0] as FakeZone;
+		await openOldLevelFinding(world, connection.id, account, zone);
 		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).toBeNull();
 
-		// The permission goes, and meanwhile the level is fixed: nothing is known, so nothing closes.
-		zone.permissions.settings = false;
-		zone.securityLevel = "medium";
 		await world.scanDue([connection.id]);
-		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).toBeNull();
 
-		zone.permissions.settings = true;
-		await world.scanDue([connection.id]);
-		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).not.toBeNull();
+		const [found] = await levelOffOf(world, connection.id);
+		expect(found?.resolved_at).not.toBeNull();
+		// Resolved even though the level is still "essentially_off": it no longer means anything.
+		expect((await world.findings()).body.findings.map((one) => one.kind)).not.toContain(
+			"security_level_off",
+		);
 	});
 
-	it("is held for every zone when the zones could not be listed", async () => {
-		const { connection, account } = await connect(world, 72, (acct) => [
-			world.upstream.addZone(acct, "listed.example", { securityLevel: "essentially_off" }),
+	it("resolves even when the level or the zone list cannot be read, since nothing judges it now", async () => {
+		const { account, connection, zones } = await connect(world, 72, (acct) => [
+			world.upstream.addZone(acct, "unreadable.example", {
+				permissions: { waf: true, bots: true, settings: false },
+			}),
 		]);
-		const fake = world.upstream.accounts.get(account);
-		if (!fake) throw new Error("the account is known");
+		await openOldLevelFinding(world, connection.id, account, zones[0] as FakeZone);
 
-		// Cloudflare's zone list stops answering, while the insights still do.
-		fake.zonesStatus = 500;
-		const before = await world.protectionZones(connection.id);
 		await world.scanDue([connection.id]);
 
-		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).toBeNull();
-		expect(await world.protectionZones(connection.id)).toEqual(before);
+		expect((await levelOffOf(world, connection.id))[0]?.resolved_at).not.toBeNull();
 	});
 });
 
@@ -372,7 +375,7 @@ describe("who may see the page", () => {
 			world.upstream.addZone(account, "bare.example", { botFightMode: false }),
 			world.upstream.addZone(account, "guarded.example", {
 				botFightMode: true,
-				securityLevel: "essentially_off",
+				securityLevel: "under_attack",
 				custom: [rule("a")],
 				permissions: { waf: true, bots: true, settings: true },
 			}),
@@ -387,7 +390,10 @@ describe("who may see the page", () => {
 		expect(mine.status).toBe(200);
 		expect(mine.text).toContain("Bot Fight Mode off on 1 of 3 zones");
 		expect(mine.text).toContain("WAF managed rules off on 2 of 3 zones");
-		expect(mine.text).toContain("Security level essentially off on 1 of 3 zones");
+		expect(mine.text).toContain("Under Attack mode on for 1 of 3 zones");
+		expect(mine.text).not.toContain("Security level");
+		expect(mine.text).toContain("Turn it on only while a site is under a DDoS attack.");
+		expect(mine.text).toContain("Turn it off once an attack is over.");
 		expect(mine.text).toContain("WAF rules not readable on 1 of 3 zones");
 		expect(mine.text).toContain("Zone › WAF › Read");
 		expect(mine.text).toContain("Fix in Cloudflare");

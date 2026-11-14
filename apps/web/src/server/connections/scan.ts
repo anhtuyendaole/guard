@@ -137,7 +137,7 @@ async function read(
 			);
 		} catch (error) {
 			console.error(`scan: protection ${error instanceof Error ? error.name : "failure"}`);
-			protection = unstoredProtection(connection);
+			protection = unstoredProtection();
 		}
 		return { findings, unjudged: [], partial: false, held: [], traffic, protection };
 	}
@@ -224,7 +224,7 @@ export async function runScan(
 		return await apply(
 			db,
 			connection,
-			await withProtection(db, connection, await withTraffic(db, connection, seen)),
+			await withProtection(db, await withTraffic(db, connection, seen)),
 			now,
 		);
 	} catch (error) {
@@ -320,9 +320,9 @@ async function withTraffic(db: Database, connection: Claimed, seen: Seen): Promi
 
 /**
  * Stores what the protection read found, in a batch of its own as the traffic is: a write that
- * fails must not keep the insights from being recorded, and nothing of it is judged then.
+ * fails must not keep the insights from being recorded.
  */
-async function withProtection(db: Database, connection: Claimed, seen: Seen): Promise<Seen> {
+async function withProtection(db: Database, seen: Seen): Promise<Seen> {
 	let protection = seen.protection;
 	if (protection && protection.statements.length > 0) {
 		try {
@@ -331,16 +331,11 @@ async function withProtection(db: Database, connection: Claimed, seen: Seen): Pr
 			console.error(
 				`scan: could not store protection ${error instanceof Error ? error.name : "failure"}`,
 			);
-			protection = unstoredProtection(connection);
+			protection = unstoredProtection();
 		}
 	}
 	if (!protection) return seen;
-	return {
-		...seen,
-		findings: [...seen.findings, ...protection.findings],
-		held: [...seen.held, ...protection.held],
-		protection,
-	};
+	return { ...seen, protection };
 }
 
 async function apply(

@@ -12,10 +12,10 @@ export type DashboardPlace = "security_rules" | "security_settings" | "security_
 const PATHS: Readonly<Record<DashboardPlace, string>> = {
 	/** WAF custom rules, rate limiting rules and managed rules. */
 	security_rules: "security/security-rules",
-	/** Bot Fight Mode and the security level. */
+	/** Bot Fight Mode and Under Attack mode. */
 	security_settings: "security/settings",
 	/** What the rules did, as Cloudflare lists it. */
-	security_events: "security/events",
+	security_events: "security/analytics/events",
 };
 
 /** A page of one zone, which the dashboard opens once the person is signed in. */

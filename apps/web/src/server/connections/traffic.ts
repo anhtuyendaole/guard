@@ -184,7 +184,7 @@ export function spikeFinding(
 		kind: SPIKE_KIND,
 		subject: zone.name,
 		title: `Blocked and challenged requests on ${zone.name} ${how}`,
-		url: `https://dash.cloudflare.com/${accountId}/${encodeURIComponent(zone.name)}/security/events`,
+		url: `https://dash.cloudflare.com/${accountId}/${encodeURIComponent(zone.name)}/security/analytics/events`,
 		fixedVersion: null,
 	};
 }

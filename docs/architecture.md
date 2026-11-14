@@ -217,7 +217,9 @@ functions with unit tests).
   answers 200 with `rules[]` (`id`, `ref`, `version`, `action`, `description`, `enabled`,
   `expression`, `last_updated`) or 404 when there are none; the managed one is 404 on all 30; the
   rate limiting one is 404 when there are no rules; bot management and the security level answer
-  200 with the permission and 403 without it.
+  200 with the permission and 403 without it. Cloudflare's docs (developers.cloudflare.com/waf/tools/security-level/,
+  updated 2026-04-16) say the security level now only turns Under Attack mode on or off: the threat
+  score is always 0, so `essentially_off`, `low`, `medium` and `high` no longer change who is challenged.
 - **A rule's expression is never read or kept.** An expression can hold the customer's own secrets
   (a header value, an address in a skip rule). The field is left out of every schema in
   `packages/scan/src/protection.ts`, so zod strips it at the boundary, no column could hold it, and
@@ -238,20 +240,19 @@ functions with unit tests).
   and Traffic cost. A Worker on Workers Paid may make 10,000 subrequests an invocation, so an account
   of a few hundred zones is within it; on the Free plan's 50 only a handful of zones fit. Requests
   are made five at once, one zone after another.
-- **One finding, from configuration.** `security_level_off`, severity `low`, one per zone, when the
-  security level is `essentially_off`; the fingerprint is
-  `protection:<account>:security_level_off:<zone id>`, so it is one finding while it lasts and
-  resolves on the first scan where the level has changed. Like the spike finding, it is held when
-  the level could not be read, and every one is held when the zones could not be listed or the write
-  failed. Insights already raises Bot Fight Mode and AI-bot findings (`manage_bot_fight_mode`,
-  `no_challenge_ai_bots`) and Guard has seen no class for the security level or for managed rules on a
-  real account (`titles.ts` lists the classes seen), so it raises no finding for managed rules being
-  off: the Protection page shows it, and the overview counts it.
+- **No finding from configuration.** Guard once raised `security_level_off` (low) for a security
+  level of `essentially_off`. That warned about a setting that does nothing, since the security level
+  now only means Under Attack mode, so the rule is gone. A kind a scan no longer makes resolves like
+  any finding that is no longer seen, on the next scan, even where the level cannot be read: nothing
+  holds it (`held` in `scan.ts` has no protection prefix). Insights already raises Bot Fight Mode
+  and AI-bot findings (`manage_bot_fight_mode`, `no_challenge_ai_bots`) and Guard has seen no class
+  for managed rules on a real account (`titles.ts` lists the classes seen), so it raises no finding
+  for managed rules being off either: the Protection page shows it, and the overview counts it.
 - **The Protection page** (`/$workspace/protection`, `GET /api/protection/<workspace>`) is for any
   member and answers a non-member as a missing workspace. At the top, one line per issue across all
   zones ("Bot Fight Mode off on 21 of 30 zones"); each is a filter on the zone list below. Per zone,
-  a checklist of five lines (managed rules, custom rules, rate limiting, Bot Fight Mode, security
-  level), each with a status in words (Good, Worth a look, Not set up, Not readable, Not read yet),
+  a checklist of five lines (managed rules, custom rules, rate limiting, Bot Fight Mode, Under
+  Attack mode), each with a status in words (Good, Worth a look, Not set up, Not readable, Not read yet),
   one sentence on why it matters, and where action is needed a "Fix in Cloudflare" link
   (`apps/web/src/lib/dashboard-links.ts`, the one module that knows the dashboard's paths). A part
   Guard cannot read says which permission to add and links to Connections. Under the checklist are
@@ -467,7 +468,7 @@ the API and auth, with D1 for accounts and workspaces.
 - **More ways to be told.** Email and the badge are built (see "Notifications"). Slack, webhooks,
   choices per severity or connection, and a push to a phone are not, and neither is an alert the
   moment a "Scan now" finishes: it goes with the next hourly run.
-- **More rules from configuration and traffic.** Only the spike and the security level are built
+- **More rules from configuration and traffic.** Only the spike is built
   (see "Traffic" and "Protection"). A finding for managed rules being off waits for a measurement of
   which insight class says so; until then the Protection page shows it. Guard does not yet read
   account-level rulesets, DDoS overrides or Super Bot Fight Mode's settings.

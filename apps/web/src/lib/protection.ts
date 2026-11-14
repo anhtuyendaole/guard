@@ -3,7 +3,7 @@ import type { ProtectionPartView, ProtectionZoneView } from "./connection-schema
 // What the Protection page says about a zone, decided here and not in the page, so that the
 // words, the statuses and the overview counts can be tested without a browser.
 
-export type CheckKey = "managed" | "custom" | "rate_limit" | "bot" | "security_level";
+export type CheckKey = "managed" | "custom" | "rate_limit" | "bot" | "under_attack";
 
 /**
  * How a check stands. `good` is as it should be, `look` is worth a look, `neutral` is a choice
@@ -41,19 +41,8 @@ export const PERMISSION: Readonly<Record<CheckKey, string>> = {
 	custom: "Zone › WAF › Read",
 	rate_limit: "Zone › WAF › Read",
 	bot: "Zone › Bot Management › Read",
-	security_level: "Zone › Zone Settings › Read",
+	under_attack: "Zone › Zone Settings › Read",
 };
-
-const LEVELS: Readonly<Record<string, string>> = {
-	essentially_off: "Essentially off",
-	low: "Low",
-	medium: "Medium",
-	high: "High",
-	under_attack: "I'm Under Attack",
-};
-
-export const levelName = (level: string): string =>
-	Object.hasOwn(LEVELS, level) ? (LEVELS[level] as string) : level.replaceAll("_", " ");
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -91,13 +80,16 @@ const WORDS: Readonly<Record<CheckKey, { label: string; why: string }>> = {
 		label: "Bot Fight Mode",
 		why: "It challenges visitors that look like known bots, with no setup.",
 	},
-	security_level: {
-		label: "Security level",
-		why: "How readily Cloudflare challenges visitors with a poor reputation.",
+	// Cloudflare's "security level" now only turns Under Attack mode on or off: its other values
+	// (essentially off to high) no longer change who is challenged
+	// (developers.cloudflare.com/waf/tools/security-level/).
+	under_attack: {
+		label: "Under Attack mode",
+		why: "It gives every visitor a challenge page, which is for a site under a DDoS attack and can block API clients.",
 	},
 };
 
-type Judged = Pick<Check, "status" | "headline" | "fix">;
+type Judged = Pick<Check, "status" | "headline" | "fix"> & { why?: string };
 
 function check(key: CheckKey, part: ProtectionPartView<unknown>, judge: () => Judged): Check {
 	const base = { key, ...WORDS[key] };
@@ -168,19 +160,23 @@ export function checksOf(zone: ProtectionZoneView): Check[] {
 				? { status: "good", headline: "On", fix: false }
 				: { status: "look", headline: "Off", fix: true };
 		}),
-		check("security_level", zone.securityLevel, () => {
+		check("under_attack", zone.securityLevel, () => {
 			const level = zone.securityLevel.state === "ok" ? zone.securityLevel.value.level : "";
-			if (level === "essentially_off") {
-				return { status: "look", headline: levelName(level), fix: true };
-			}
+			// Only `under_attack` is on. Any other value is the old security level, which does nothing.
 			if (level === "under_attack") {
 				return {
-					status: "neutral",
-					headline: `${levelName(level)}, meant to be temporary`,
+					status: "look",
+					headline: "On: every visitor gets a challenge page",
+					why: "Every visitor gets a challenge page, which can block API clients. Turn it off once an attack is over.",
 					fix: true,
 				};
 			}
-			return { status: "good", headline: levelName(level), fix: false };
+			return {
+				status: "good",
+				headline: "Off",
+				why: "Turn it on only while a site is under a DDoS attack.",
+				fix: false,
+			};
 		}),
 	];
 }
@@ -191,7 +187,7 @@ export function checksOf(zone: ProtectionZoneView): Check[] {
 export type IssueId =
 	| "managed_off"
 	| "bot_off"
-	| "level_off"
+	| "under_attack_on"
 	| "missing_waf"
 	| "missing_bot"
 	| "missing_level";
@@ -199,7 +195,7 @@ export type IssueId =
 export const ISSUE_IDS: readonly IssueId[] = [
 	"managed_off",
 	"bot_off",
-	"level_off",
+	"under_attack_on",
 	"missing_waf",
 	"missing_bot",
 	"missing_level",
@@ -215,8 +211,8 @@ export function issuesOf(zone: ProtectionZoneView): IssueId[] {
 		issues.push("managed_off");
 	}
 	if (zone.bot.state === "ok" && zone.bot.value.fightMode === false) issues.push("bot_off");
-	if (zone.securityLevel.state === "ok" && zone.securityLevel.value.level === "essentially_off") {
-		issues.push("level_off");
+	if (zone.securityLevel.state === "ok" && zone.securityLevel.value.level === "under_attack") {
+		issues.push("under_attack_on");
 	}
 	if ([zone.custom, zone.managed, zone.rateLimit].some(forbidden)) issues.push("missing_waf");
 	if (forbidden(zone.bot)) issues.push("missing_bot");
@@ -237,7 +233,7 @@ const ISSUE_TEXT: Readonly<
 > = {
 	managed_off: { tone: "look", text: (on) => `WAF managed rules off on ${on}` },
 	bot_off: { tone: "look", text: (on) => `Bot Fight Mode off on ${on}` },
-	level_off: { tone: "look", text: (on) => `Security level essentially off on ${on}` },
+	under_attack_on: { tone: "look", text: (on) => `Under Attack mode on for ${on}` },
 	missing_waf: {
 		tone: "unreadable",
 		text: (on) => `WAF rules not readable on ${on}: add ${PERMISSION.managed} to the token`,
@@ -249,7 +245,7 @@ const ISSUE_TEXT: Readonly<
 	missing_level: {
 		tone: "unreadable",
 		text: (on) =>
-			`Security level not readable on ${on}: add ${PERMISSION.security_level} to the token`,
+			`Under Attack mode not readable on ${on}: add ${PERMISSION.under_attack} to the token`,
 	},
 };
 

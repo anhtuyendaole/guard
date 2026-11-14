@@ -7,38 +7,27 @@ import {
 	type UpstreamFailure,
 	type Zone,
 } from "@gateweave/guard-scan";
-import { zoneDashboardUrl } from "../../lib/dashboard-links";
 import type { Database } from "../db";
-import type { PresentFinding } from "./findings";
 
 /**
  * Reading what protects each zone of a Cloudflare connection: managed rules, custom rules, rate
- * limiting, Bot Fight Mode and the security level (docs/architecture.md, "Protection"). Never a
+ * limiting, Bot Fight Mode and Under Attack mode (docs/architecture.md, "Protection"). Never a
  * rule's expression: `packages/scan` does not read it, and no column here could hold it.
+ *
+ * Nothing here raises a finding. A scan once raised `security_level_off` for a security level of
+ * `essentially_off`, but the security level now only turns Under Attack mode on or off
+ * (developers.cloudflare.com/waf/tools/security-level/), so that finding warned about a setting that
+ * does nothing. A scan resolves any that are still open, as it does for a kind it no longer makes.
  */
-
-export const LEVEL_OFF_KIND = "security_level_off";
-/** The value Cloudflare gives a security level that challenges nobody on reputation. */
-export const LEVEL_OFF = "essentially_off";
-
-/** What every protection finding of an account's fingerprint starts with. */
-export const protectionPrefix = (accountId: string) => `protection:${accountId}:`;
-
-export const levelOffFingerprint = (accountId: string, zoneId: string) =>
-	`${protectionPrefix(accountId)}${LEVEL_OFF_KIND}:${zoneId}`;
 
 /** Rows written by one statement, which D1 binds as one JSON value. */
 const ROWS_PER_STATEMENT = 200;
 const ZONES_PER_STATEMENT = 50;
 
 export interface ProtectionRead {
-	/** The findings of zones whose security level could be read. */
-	findings: PresentFinding[];
-	/** Fingerprints (or prefixes) whose findings this scan could not judge, which stay as they are. */
-	held: string[];
 	/** Something failed in a way that passes with time: try again within the hour. */
 	retry: boolean;
-	/** What to write, in a batch of their own before the findings are changed. */
+	/** What to write, in a batch of its own, so a failing write cannot keep the insights out. */
 	statements: D1PreparedStatement[];
 }
 
@@ -48,14 +37,9 @@ interface ConnectionRef {
 	target: string;
 }
 
-/** What a scan that has no zones to read, or could not store them, leaves: nothing judged. */
-export function unstoredProtection(connection: ConnectionRef): ProtectionRead {
-	return {
-		findings: [],
-		held: [protectionPrefix(connection.target)],
-		retry: false,
-		statements: [],
-	};
+/** What a scan that has no zones to read, or could not store them, leaves: nothing. */
+export function unstoredProtection(): ProtectionRead {
+	return { retry: false, statements: [] };
 }
 
 function chunks<T>(items: readonly T[], size: number): T[][] {
@@ -76,30 +60,10 @@ const parts = (protection: Protection): Part<unknown>[] => [
 	protection.securityLevel,
 ];
 
-/** The security level finding for a zone, or null. Low: it is a setting, not a breach. */
-export function securityLevelFinding(
-	accountId: string,
-	zone: { id: string; name: string },
-	level: string,
-): PresentFinding | null {
-	if (level !== LEVEL_OFF) return null;
-	return {
-		fingerprint: levelOffFingerprint(accountId, zone.id),
-		source: "cloudflare",
-		severity: "low",
-		kind: LEVEL_OFF_KIND,
-		subject: zone.name,
-		title: `The security level of ${zone.name} is Essentially Off`,
-		url: zoneDashboardUrl(accountId, zone.name, "security_settings"),
-		fixedVersion: null,
-	};
-}
-
 /**
  * Reads the protection of each of `zones`, one zone at a time with its five requests made
  * together, so five are in flight at once. A zone, or a part of one, that cannot be read is
- * recorded as such and never fails the scan. Returns the statements that store it all, and the
- * `security_level_off` findings of the zones whose level was read.
+ * recorded as such and never fails the scan. Returns the statements that store it all.
  */
 export async function readConnectionProtection(
 	db: Database,
@@ -108,11 +72,9 @@ export async function readConnectionProtection(
 	options: FetchOptions,
 	zones: readonly Zone[] | null,
 ): Promise<ProtectionRead> {
-	if (zones === null) return unstoredProtection(connection);
+	if (zones === null) return unstoredProtection();
 	const account = { accountId: connection.target, token };
 
-	const findings: PresentFinding[] = [];
-	const held: string[] = [];
 	let retry = false;
 	const read: { zone: Zone; protection: Protection }[] = [];
 	for (const zone of zones) {
@@ -120,23 +82,13 @@ export async function readConnectionProtection(
 		try {
 			protection = await readProtection(account, zone.id, options);
 		} catch (error) {
-			// A bad id, or an abort: nothing to record for this zone, and its finding stays as it is.
-			if (error instanceof UpstreamError || error instanceof RangeError) {
-				held.push(levelOffFingerprint(connection.target, zone.id));
-				continue;
-			}
+			// A bad id: nothing to record for this zone.
+			if (error instanceof UpstreamError || error instanceof RangeError) continue;
 			throw error;
 		}
 		read.push({ zone, protection });
 		for (const part of parts(protection)) {
 			if (part.state === "failed" && retryable(part.failure)) retry = true;
-		}
-		const level = protection.securityLevel;
-		if (level.state === "ok") {
-			const found = securityLevelFinding(connection.target, zone, level.value.level);
-			if (found) findings.push(found);
-		} else if (level.state === "failed") {
-			held.push(levelOffFingerprint(connection.target, zone.id));
 		}
 	}
 
@@ -235,5 +187,5 @@ export async function readConnectionProtection(
 			insertRules.bind(connection.id, connection.organization_id, JSON.stringify(chunk)),
 		);
 	}
-	return { findings, held, retry, statements };
+	return { retry, statements };
 }
