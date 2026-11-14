@@ -379,7 +379,9 @@ describe("the spike finding", () => {
 		expect(found?.title).toContain("10 times");
 		expect(found?.title).toContain("1,000 yesterday");
 		expect(found?.title).toContain("median of 100");
-		expect(found?.url).toBe(`https://dash.cloudflare.com/${account}/shop.example/security/events`);
+		expect(found?.url).toBe(
+			`https://dash.cloudflare.com/${account}/shop.example/security/analytics/events`,
+		);
 		expect(found?.resolved_at).toBeNull();
 		const listed = await world.findings();
 		expect(listed.body.findings.map((one) => one.kind)).toContain("waf_spike");

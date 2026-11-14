@@ -7,7 +7,6 @@ import {
 	checksOf,
 	filterZones,
 	issuesOf,
-	levelName,
 	overviewOf,
 	sortZones,
 } from "./protection";
@@ -43,7 +42,7 @@ describe("a zone's checklist", () => {
 			custom: "neutral",
 			rate_limit: "neutral",
 			bot: "good",
-			security_level: "good",
+			under_attack: "good",
 		});
 	});
 
@@ -51,7 +50,7 @@ describe("a zone's checklist", () => {
 		const bad = zone("bad", {
 			managed: { state: "none" },
 			bot: { state: "ok", value: { fightMode: false } },
-			securityLevel: { state: "ok", value: { level: "essentially_off" } },
+			securityLevel: { state: "ok", value: { level: "under_attack" } },
 			custom: { state: "ok", value: { total: 2, enabled: 0 } },
 		});
 		const checks = checksOf(bad);
@@ -60,12 +59,33 @@ describe("a zone's checklist", () => {
 			["custom", "look", true],
 			["rate_limit", "neutral", false],
 			["bot", "look", true],
-			["security_level", "look", true],
+			["under_attack", "look", true],
 		]);
 		expect(checks[0]?.headline).toBe("Off");
 		expect(checks[1]?.headline).toBe("2 rules, all off");
-		expect(checks[4]?.headline).toBe("Essentially off");
+		expect(checks[4]?.headline).toBe("On");
+		expect(checks[4]?.why).toContain("Turn it off once an attack is over.");
 		for (const one of checks) expect(one.why.length).toBeGreaterThan(20);
+	});
+
+	it("reads the security level as Under Attack mode only: any other value is Off, and fine", () => {
+		// The old values no longer change who is challenged, so none of them is worth a look.
+		for (const level of ["essentially_off", "low", "medium", "high", "something_new"]) {
+			const check = checksOf(zone("a", { securityLevel: { state: "ok", value: { level } } }))[4];
+			expect(check?.label, level).toBe("Under Attack mode");
+			expect(check?.status, level).toBe("good");
+			expect(check?.headline, level).toBe("Off");
+			expect(check?.fix, level).toBe(false);
+			expect(check?.why, level).toBe("Turn it on only while a site is under a DDoS attack.");
+		}
+		expect(
+			issuesOf(zone("a", { securityLevel: { state: "ok", value: { level: "essentially_off" } } })),
+		).toEqual([]);
+		const on = checksOf(
+			zone("a", { securityLevel: { state: "ok", value: { level: "under_attack" } } }),
+		)[4];
+		expect(on).toMatchObject({ status: "look", fix: true, label: "Under Attack mode" });
+		expect(on?.why).toContain("can block API clients");
 	});
 
 	it("counts custom and rate limiting rules in words", () => {
@@ -141,8 +161,6 @@ describe("a zone's checklist", () => {
 	});
 
 	it("reads levels and actions as words, and unknown ones as Cloudflare writes them", () => {
-		expect(levelName("under_attack")).toBe("I'm Under Attack");
-		expect(levelName("some_new_level")).toBe("some new level");
 		expect(actionName("managed_challenge")).toBe("Managed challenge");
 		expect(actionName("new_action")).toBe("new action");
 		expect(actionName("")).toBe("No action");
@@ -155,7 +173,7 @@ describe("the overview", () => {
 		zone("b", { managed: { state: "none" } }),
 		zone("c", {
 			managed: { state: "none" },
-			securityLevel: { state: "ok", value: { level: "essentially_off" } },
+			securityLevel: { state: "ok", value: { level: "under_attack" } },
 		}),
 		zone("d", { bot: { state: "failed", failure: "forbidden" } }),
 		zone("unread", { readAt: null, managed: { state: "unread" } }),
@@ -165,7 +183,7 @@ describe("the overview", () => {
 		expect(overviewOf(zones).map((line) => [line.id, line.zones, line.text])).toEqual([
 			["managed_off", 3, "WAF managed rules off on 3 of 4 zones"],
 			["bot_off", 1, "Bot Fight Mode off on 1 of 4 zones"],
-			["level_off", 1, "Security level essentially off on 1 of 4 zones"],
+			["under_attack_on", 1, "Under Attack mode on for 1 of 4 zones"],
 			[
 				"missing_bot",
 				1,
@@ -207,6 +225,9 @@ describe("dashboard links", () => {
 	it("point at the zone's page, with the account and zone encoded", () => {
 		expect(zoneDashboardUrl("a".repeat(32), "shop.example", "security_settings")).toBe(
 			`https://dash.cloudflare.com/${"a".repeat(32)}/shop.example/security/settings`,
+		);
+		expect(zoneDashboardUrl("acc", "shop.example", "security_events")).toBe(
+			"https://dash.cloudflare.com/acc/shop.example/security/analytics/events",
 		);
 		expect(zoneDashboardUrl("acc", "x/../y", "security_rules")).toBe(
 			"https://dash.cloudflare.com/acc/x%2F..%2Fy/security/security-rules",

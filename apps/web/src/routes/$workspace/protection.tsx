@@ -224,7 +224,7 @@ const FIX_PLACE = {
 	custom: "security_rules",
 	rate_limit: "security_rules",
 	bot: "security_settings",
-	security_level: "security_settings",
+	under_attack: "security_settings",
 } as const;
 
 function ZoneCard({

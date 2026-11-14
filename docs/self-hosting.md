@@ -177,7 +177,7 @@ cannot count what the WAF and bots did to each zone (the Traffic page), and the 
 while its Security Insights are still scanned. Connecting checks the Analytics permission on the
 account's first active zone. Three more read permissions are optional, for the Protection page, all on all zones:
 Zone › WAF › Read (custom, managed and rate limiting rules), Zone › Bot Management › Read (Bot Fight
-Mode) and Zone › Zone Settings › Read (security level). Without one, Protection says which is missing
+Mode) and Zone › Zone Settings › Read (Under Attack mode). Without one, Protection says which is missing
 and the rest still works. A scan costs Cloudflare five more requests a zone; on Workers Paid
 (10,000 subrequests an invocation) that is no limit for an account of a few hundred zones, but on the
 Free plan's 50 only a few zones fit. Guard never reads or stores a rule's expression, which can hold
