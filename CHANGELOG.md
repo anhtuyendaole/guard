@@ -49,4 +49,3 @@ turns a finding into an issue in Gateweave Track. It never changes a setting, a 
 - See [docs/self-hosting.md](docs/self-hosting.md): it needs Workers Paid, a D1 database and, to
   connect anything, `SECRETS_KEY`. Keep a copy of `SECRETS_KEY` outside Cloudflare: without it, the
   tokens in the database and its backups cannot be opened.
-
