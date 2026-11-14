@@ -6,5 +6,6 @@ export * from "./github";
 export type { FetchOptions } from "./http";
 export * from "./lockfiles";
 export * from "./osv";
+export * from "./protection";
 export * from "./semver";
 export * from "./traffic";

@@ -11,6 +11,7 @@ import { KEPT_SCANS } from "../db/connections-schema";
 import { isSealer, sealerFor } from "../secrets";
 import type { SecretsKeySettings } from "../secrets-key";
 import { dependencyFindings, insightFindings, type PresentFinding } from "./findings";
+import { type ProtectionRead, readConnectionProtection, unstoredProtection } from "./protection";
 import { tokenPlace } from "./tokens";
 import { readConnectionTraffic, type TrafficRead, unstored } from "./traffic";
 
@@ -98,6 +99,8 @@ interface Seen {
 	held: string[];
 	/** What the traffic read did, for a Cloudflare connection. */
 	traffic: TrafficRead | null;
+	/** What the protection read did, for a Cloudflare connection. */
+	protection: ProtectionRead | null;
 }
 
 /** Reads what the connection can see, and returns what is wrong there now. */
@@ -120,12 +123,27 @@ async function read(
 			console.error(`scan: traffic ${error instanceof Error ? error.name : "failure"}`);
 			traffic = unstored(connection);
 		}
-		return { findings, unjudged: [], partial: false, held: [], traffic };
+		// Protection comes after Traffic, on the zones it listed, and never fails the rest: a token
+		// without the optional WAF, bot and settings permissions says so, zone by zone.
+		let protection: ProtectionRead;
+		try {
+			protection = await readConnectionProtection(
+				deps.db,
+				connection,
+				token,
+				options,
+				traffic.zones,
+			);
+		} catch (error) {
+			console.error(`scan: protection ${error instanceof Error ? error.name : "failure"}`);
+			protection = unstoredProtection(connection);
+		}
+		return { findings, unjudged: [], partial: false, held: [], traffic, protection };
 	}
 	const name = parseRepositoryName(connection.target);
 	if (!name) throw new UpstreamError("github", "not_found", "That is not a repository name");
 	const scanned = await dependencyFindings(await scanRepository(name, token, options));
-	return { ...scanned, held: [], traffic: null };
+	return { ...scanned, held: [], traffic: null, protection: null };
 }
 
 /** The failure to record for something that went wrong. Never carries a message: tokens are near. */
@@ -201,7 +219,12 @@ export async function runScan(
 				resolved: 0,
 			});
 		}
-		return await apply(db, connection, await withTraffic(db, connection, seen), now);
+		return await apply(
+			db,
+			connection,
+			await withProtection(db, connection, await withTraffic(db, connection, seen)),
+			now,
+		);
 	} catch (error) {
 		// The connection may have been removed while this scan ran, or D1 failed. Either way
 		// nothing was written, since each is one batch.
@@ -293,6 +316,31 @@ async function withTraffic(db: Database, connection: Claimed, seen: Seen): Promi
 	};
 }
 
+/**
+ * Stores what the protection read found, in a batch of its own as the traffic is: a write that
+ * fails must not keep the insights from being recorded, and nothing of it is judged then.
+ */
+async function withProtection(db: Database, connection: Claimed, seen: Seen): Promise<Seen> {
+	let protection = seen.protection;
+	if (protection && protection.statements.length > 0) {
+		try {
+			await db.$client.batch(protection.statements);
+		} catch (error) {
+			console.error(
+				`scan: could not store protection ${error instanceof Error ? error.name : "failure"}`,
+			);
+			protection = unstoredProtection(connection);
+		}
+	}
+	if (!protection) return seen;
+	return {
+		...seen,
+		findings: [...seen.findings, ...protection.findings],
+		held: [...seen.held, ...protection.held],
+		protection,
+	};
+}
+
 async function apply(
 	db: Database,
 	connection: Claimed,
@@ -361,7 +409,11 @@ async function apply(
 			)
 			.bind(
 				finished,
-				nextScanAfter("ok", finished, seen.traffic?.retry ?? false),
+				nextScanAfter(
+					"ok",
+					finished,
+					(seen.traffic?.retry ?? false) || (seen.protection?.retry ?? false),
+				),
 				seen.traffic?.outcome ?? null,
 				connection.id,
 			),

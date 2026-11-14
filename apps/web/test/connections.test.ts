@@ -1108,7 +1108,7 @@ describe("removing a connection", () => {
 			world.upstream.hold.until = null;
 			await running;
 			// The scan found its connection gone and wrote nothing.
-			expect(await world.dump()).toBe("[[],[],[],[],[]]");
+			expect(await world.dump()).toBe("[[],[],[],[],[],[],[]]");
 		} finally {
 			await world.dispose();
 		}

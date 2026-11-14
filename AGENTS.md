@@ -95,6 +95,10 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    (`traffic_count`). Never an IP address, a user agent or a request path, however briefly, never in
    a log and never in a query: `packages/scan/src/traffic.ts` names the few fields it asks Cloudflare
    for, and two tests fail if one that identifies a visitor appears.
+   **A rule's expression is never stored either.** Protection reads a zone's custom WAF rules, and an
+   expression can hold the customer's own secrets (a header value, an address in a skip rule). It is
+   left out of the schemas in `packages/scan/src/protection.ts`, so it is stripped at the boundary,
+   and no column holds it; tests fail if one is stored, returned or shown.
 4. **Workspaces are private.** Every server function that reads or changes workspace data checks
    the caller's membership in D1 first (`currentMember` in `apps/web/src/server/access.ts`).
    Non-members get the same "not found" as a missing workspace.

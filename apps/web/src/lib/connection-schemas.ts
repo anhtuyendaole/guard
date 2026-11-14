@@ -223,3 +223,53 @@ export interface ScanSummary {
 	added: number;
 	resolved: number;
 }
+
+/** What Guard knows of one thing it reads about a zone. `unread` is a zone no scan has read yet. */
+export type ProtectionPartView<T> =
+	| { state: "ok"; value: T }
+	| { state: "none" }
+	| { state: "failed"; failure: string }
+	| { state: "unread" };
+
+/** A custom WAF rule, as a person reads it. Its expression is never read, so it is not here. */
+export interface ProtectionRuleView {
+	ruleId: string;
+	description: string;
+	action: string;
+	enabled: boolean;
+	/** As Cloudflare writes it, an ISO time; null when it did not say. */
+	lastUpdated: string | null;
+	/**
+	 * What Traffic recorded of this rule on the days it recorded rules: an estimate from sampled
+	 * events. Null when no day recorded it, which is not the same as it never acting.
+	 */
+	acted: { count: number; days: number } | null;
+}
+
+export interface ProtectionZoneView {
+	connectionId: string;
+	connectionName: string;
+	/** Cloudflare's account id, for the links into its dashboard. */
+	accountId: string;
+	zoneId: string;
+	name: string;
+	plan: string | null;
+	/** When Guard last read this zone's protection; null until a scan has. */
+	readAt: number | null;
+	custom: ProtectionPartView<{ total: number; enabled: number }>;
+	managed: ProtectionPartView<{
+		rulesets: { id: string; name: string | null; enabled: boolean }[];
+	}>;
+	rateLimit: ProtectionPartView<{ total: number; enabled: number }>;
+	bot: ProtectionPartView<{ fightMode: boolean | null }>;
+	securityLevel: ProtectionPartView<{ level: string }>;
+	rules: ProtectionRuleView[];
+	/** On how many days Traffic recorded the rules that acted in this zone. */
+	ruleDays: number;
+}
+
+export interface ProtectionPage {
+	/** Whether the workspace has a Cloudflare connection, which tells "nothing yet" from "no zones". */
+	hasConnections: boolean;
+	zones: ProtectionZoneView[];
+}

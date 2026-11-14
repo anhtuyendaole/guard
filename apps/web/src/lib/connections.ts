@@ -33,6 +33,14 @@ export const getTraffic = createServerFn({ method: "GET" })
 		return listTraffic(slug);
 	});
 
+/** What protects the workspace's Cloudflare zones, or null when the caller is not in it. */
+export const getProtection = createServerFn({ method: "GET" })
+	.validator(z.string().min(1))
+	.handler(async ({ data: slug }) => {
+		const { listProtection } = await import("#/server/connections/protection-gateway");
+		return listProtection(slug);
+	});
+
 export type Answer<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 async function post<T>(url: string, body: unknown): Promise<Answer<T>> {

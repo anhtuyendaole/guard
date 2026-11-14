@@ -17,6 +17,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
 import { Route as WorkspaceConnectionsRouteImport } from './routes/$workspace/connections'
 import { Route as WorkspaceFindingsRouteImport } from './routes/$workspace/findings'
+import { Route as WorkspaceProtectionRouteImport } from './routes/$workspace/protection'
 import { Route as WorkspaceServerRouteImport } from './routes/$workspace/server'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as WorkspaceTrafficRouteImport } from './routes/$workspace/traffic'
@@ -28,6 +29,7 @@ import { Route as WorkspaceSettingsWorkspaceRouteImport } from './routes/$worksp
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiConnectionsWorkspaceRouteImport } from './routes/api/connections/$workspace'
 import { Route as ApiFindingsWorkspaceRouteImport } from './routes/api/findings/$workspace'
+import { Route as ApiProtectionWorkspaceRouteImport } from './routes/api/protection/$workspace'
 import { Route as ApiTrafficWorkspaceRouteImport } from './routes/api/traffic/$workspace'
 
 const IndexRoute = IndexRouteImport.update({
@@ -68,6 +70,11 @@ const WorkspaceConnectionsRoute = WorkspaceConnectionsRouteImport.update({
 const WorkspaceFindingsRoute = WorkspaceFindingsRouteImport.update({
   id: '/findings',
   path: '/findings',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceProtectionRoute = WorkspaceProtectionRouteImport.update({
+  id: '/protection',
+  path: '/protection',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceServerRoute = WorkspaceServerRouteImport.update({
@@ -127,6 +134,11 @@ const ApiFindingsWorkspaceRoute = ApiFindingsWorkspaceRouteImport.update({
   path: '/api/findings/$workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProtectionWorkspaceRoute = ApiProtectionWorkspaceRouteImport.update({
+  id: '/api/protection/$workspace',
+  path: '/api/protection/$workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTrafficWorkspaceRoute = ApiTrafficWorkspaceRouteImport.update({
   id: '/api/traffic/$workspace',
   path: '/api/traffic/$workspace',
@@ -141,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/connections': typeof WorkspaceConnectionsRoute
   '/$workspace/findings': typeof WorkspaceFindingsRoute
+  '/$workspace/protection': typeof WorkspaceProtectionRoute
   '/$workspace/server': typeof WorkspaceServerRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
@@ -152,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRoute
+  '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
 }
@@ -162,6 +176,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/connections': typeof WorkspaceConnectionsRoute
   '/$workspace/findings': typeof WorkspaceFindingsRoute
+  '/$workspace/protection': typeof WorkspaceProtectionRoute
   '/$workspace/server': typeof WorkspaceServerRoute
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
@@ -172,6 +187,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRoute
+  '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
 }
@@ -184,6 +200,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/connections': typeof WorkspaceConnectionsRoute
   '/$workspace/findings': typeof WorkspaceFindingsRoute
+  '/$workspace/protection': typeof WorkspaceProtectionRoute
   '/$workspace/server': typeof WorkspaceServerRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
@@ -195,6 +212,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRoute
+  '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
 }
@@ -208,6 +226,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/$workspace/connections'
     | '/$workspace/findings'
+    | '/$workspace/protection'
     | '/$workspace/server'
     | '/$workspace/settings'
     | '/$workspace/traffic'
@@ -219,6 +238,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
+    | '/api/protection/$workspace'
     | '/api/traffic/$workspace'
     | '/$workspace/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -229,6 +249,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/$workspace/connections'
     | '/$workspace/findings'
+    | '/$workspace/protection'
     | '/$workspace/server'
     | '/$workspace/traffic'
     | '/invite/$invitationId'
@@ -239,6 +260,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
+    | '/api/protection/$workspace'
     | '/api/traffic/$workspace'
     | '/$workspace/settings'
   id:
@@ -250,6 +272,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/$workspace/connections'
     | '/$workspace/findings'
+    | '/$workspace/protection'
     | '/$workspace/server'
     | '/$workspace/settings'
     | '/$workspace/traffic'
@@ -261,6 +284,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
+    | '/api/protection/$workspace'
     | '/api/traffic/$workspace'
     | '/$workspace/settings/'
   fileRoutesById: FileRoutesById
@@ -276,6 +300,7 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiConnectionsWorkspaceRoute: typeof ApiConnectionsWorkspaceRoute
   ApiFindingsWorkspaceRoute: typeof ApiFindingsWorkspaceRoute
+  ApiProtectionWorkspaceRoute: typeof ApiProtectionWorkspaceRoute
   ApiTrafficWorkspaceRoute: typeof ApiTrafficWorkspaceRoute
 }
 
@@ -335,6 +360,13 @@ declare module '@tanstack/react-router' {
       path: '/findings'
       fullPath: '/$workspace/findings'
       preLoaderRoute: typeof WorkspaceFindingsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/protection': {
+      id: '/$workspace/protection'
+      path: '/protection'
+      fullPath: '/$workspace/protection'
+      preLoaderRoute: typeof WorkspaceProtectionRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/$workspace/server': {
@@ -414,6 +446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiFindingsWorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/protection/$workspace': {
+      id: '/api/protection/$workspace'
+      path: '/api/protection/$workspace'
+      fullPath: '/api/protection/$workspace'
+      preLoaderRoute: typeof ApiProtectionWorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/traffic/$workspace': {
       id: '/api/traffic/$workspace'
       path: '/api/traffic/$workspace'
@@ -442,6 +481,7 @@ const WorkspaceSettingsRouteWithChildren =
 interface WorkspaceRouteChildren {
   WorkspaceConnectionsRoute: typeof WorkspaceConnectionsRoute
   WorkspaceFindingsRoute: typeof WorkspaceFindingsRoute
+  WorkspaceProtectionRoute: typeof WorkspaceProtectionRoute
   WorkspaceServerRoute: typeof WorkspaceServerRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRouteWithChildren
   WorkspaceTrafficRoute: typeof WorkspaceTrafficRoute
@@ -451,6 +491,7 @@ interface WorkspaceRouteChildren {
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceConnectionsRoute: WorkspaceConnectionsRoute,
   WorkspaceFindingsRoute: WorkspaceFindingsRoute,
+  WorkspaceProtectionRoute: WorkspaceProtectionRoute,
   WorkspaceServerRoute: WorkspaceServerRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRouteWithChildren,
   WorkspaceTrafficRoute: WorkspaceTrafficRoute,
@@ -472,6 +513,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiConnectionsWorkspaceRoute: ApiConnectionsWorkspaceRoute,
   ApiFindingsWorkspaceRoute: ApiFindingsWorkspaceRoute,
+  ApiProtectionWorkspaceRoute: ApiProtectionWorkspaceRoute,
   ApiTrafficWorkspaceRoute: ApiTrafficWorkspaceRoute,
 }
 export const routeTree = rootRouteImport

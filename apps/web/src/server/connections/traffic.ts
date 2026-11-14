@@ -203,6 +203,8 @@ export interface TrafficRead {
 	retry: boolean;
 	/** What to write, to run in a batch of their own before the findings are changed. */
 	statements: D1PreparedStatement[];
+	/** The active zones the listing found, or null when it failed: Protection reads the same ones. */
+	zones: Zone[] | null;
 }
 
 interface ConnectionRef {
@@ -254,6 +256,7 @@ export function unstored(connection: ConnectionRef): TrafficRead {
 		held: [trafficPrefix(connection.target)],
 		retry: true,
 		statements: [],
+		zones: null,
 	};
 }
 
@@ -284,7 +287,7 @@ export async function readConnectionTraffic(
 		listed = await listZones(account, options);
 	} catch (error) {
 		const outcome = failureOf(error);
-		return { outcome, findings: [], held, retry: retryable(outcome), statements: [] };
+		return { outcome, findings: [], held, retry: retryable(outcome), statements: [], zones: null };
 	}
 	const zones = listed.filter((zone) => zone.status === "active");
 
@@ -491,5 +494,6 @@ export async function readConnectionTraffic(
 		held: outcome === "ok" ? kept : held,
 		retry: [...failures.values()].some(retryable),
 		statements,
+		zones,
 	};
 }
