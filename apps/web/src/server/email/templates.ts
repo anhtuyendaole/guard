@@ -3,6 +3,12 @@ import type { Email } from "./mailer";
 /** An email before it is addressed. */
 export type Message = Omit<Email, "to">;
 
+/** A titled list in an email: severities with counts, or findings with where they are. */
+export interface Section {
+	title: string;
+	lines: string[];
+}
+
 const PRODUCT = "Gateweave Guard";
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -97,22 +103,32 @@ export function accountDeletedEmail({ email }: { email: string }): Message {
 	});
 }
 
-function compose({
+export function compose({
 	subject,
 	heading,
 	body,
+	sections = [],
 	action,
 	footer,
+	footerLink,
 }: {
 	subject: string;
 	heading: string;
 	body: string[];
+	/** Lists after the text, such as the findings an alert is about. */
+	sections?: Section[];
 	/** The button, for a message that asks for something. */
 	action?: { label: string; url: string };
 	footer: string;
+	/** A link in the footer, such as to turn these emails off. */
+	footerLink?: { label: string; url: string };
 }): Message {
 	const link = action ? [`${action.label}: ${action.url}`] : [];
-	const text = [...body, ...link, footer, `— ${PRODUCT}`].join("\n\n");
+	const listed = sections.map(({ title, lines }) =>
+		[title, ...lines.map((line) => `- ${line}`)].join("\n"),
+	);
+	const footerText = footerLink ? `${footer}\n${footerLink.label}: ${footerLink.url}` : footer;
+	const text = [...body, ...listed, ...link, footerText, `— ${PRODUCT}`].join("\n\n");
 	const button = action
 		? `<p style="margin:24px 0"><a href="${escapeHtml(action.url)}" style="display:inline-block;padding:10px 16px;background:#171717;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">${escapeHtml(action.label)}</a></p>
 <p style="margin:0 0 16px;font-size:13px;color:#525252">Or paste this link into your browser:<br><span style="word-break:break-all">${escapeHtml(action.url)}</span></p>`
@@ -120,6 +136,16 @@ function compose({
 	const paragraphs = body
 		.map((line) => `<p style="margin:0 0 16px">${escapeHtml(line)}</p>`)
 		.join("");
+	const lists = sections
+		.map(
+			({ title, lines }) =>
+				`<p style="margin:16px 0 4px;font-weight:600">${escapeHtml(title)}</p>
+<ul style="margin:0 0 16px;padding-left:20px">${lines.map((line) => `<li style="margin:0 0 6px">${escapeHtml(line)}</li>`).join("")}</ul>`,
+		)
+		.join("");
+	const footerHtml = footerLink
+		? `${escapeHtml(footer)} <a href="${escapeHtml(footerLink.url)}" style="color:#525252">${escapeHtml(footerLink.label)}</a>`
+		: escapeHtml(footer);
 	const html = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(subject)}</title></head>
@@ -128,8 +154,9 @@ function compose({
 <p style="margin:0 0 24px;font-size:13px;font-weight:600;color:#525252">${PRODUCT}</p>
 <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">${escapeHtml(heading)}</h1>
 ${paragraphs}
+${lists}
 ${button}
-<p style="margin:24px 0 0;font-size:13px;color:#737373">${escapeHtml(footer)}</p>
+<p style="margin:24px 0 0;font-size:13px;color:#737373">${footerHtml}</p>
 </div>
 </body>
 </html>`;
@@ -140,7 +167,7 @@ function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
-function clip(value: string, max: number): string {
+export function clip(value: string, max: number): string {
 	const line = oneLine(value);
 	return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }

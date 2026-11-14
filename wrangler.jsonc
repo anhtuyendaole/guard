@@ -17,7 +17,8 @@
 	"upload_source_maps": true,
 	// Once a day, deletes sessions, verifications and invitations past their time, and seals tokens
 	// again after SECRETS_KEY changed. Every hour, scans the connections whose time has come
-	// ("0 * * * *" is SCAN_CRON in apps/web/src/server.ts). Environments inherit this.
+	// ("0 * * * *" is SCAN_CRON in apps/web/src/server.ts), then sends the alert and, on Monday from 08:00
+	// UTC, the weekly summary. Environments inherit this.
 	"triggers": { "crons": ["29 3 * * *", "0 * * * *"] },
 	// Accounts, workspaces, and who runs the deployment. The database is provisioned on first deploy.
 	"d1_databases": [

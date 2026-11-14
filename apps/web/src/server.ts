@@ -3,6 +3,8 @@ import handler from "@tanstack/react-start/server-entry";
 import { db } from "./server/auth";
 import { scanDue } from "./server/connections/scan";
 import { pruneExpired } from "./server/db/prune";
+import { mailer } from "./server/email";
+import { sendAlerts, sendDigests } from "./server/notifications/send";
 import { resealSecrets } from "./server/reseal-secrets";
 import { newNonce, withSecurityHeaders } from "./server/security-headers";
 
@@ -27,6 +29,30 @@ function route(request: Request, nonce: string): Response | Promise<Response> {
 	return handler.fetch(request, { context: { nonce } });
 }
 
+/**
+ * Tells members what the scans found: an email for new critical and high findings, and on Monday at
+ * 08:00 UTC the weekly summary. It runs after the scans, and a failure here never fails them.
+ */
+async function notify(scheduledTime: number) {
+	const deps = {
+		db,
+		mailer,
+		origin: env.BETTER_AUTH_URL ? new URL(env.BETTER_AUTH_URL).origin : undefined,
+	};
+	try {
+		// Alerts go by the clock, not the schedule: a finding is told once it exists, and the
+		// scans above have only just written some.
+		const alerts = await sendAlerts(deps);
+		const digests = await sendDigests(deps, scheduledTime);
+		// Counts only: who was told, and about what, is the workspace's own business.
+		if (alerts.sent > 0 || digests.sent > 0) {
+			console.log(`notifications: ${JSON.stringify({ alerts, digests })}`);
+		}
+	} catch (error) {
+		console.error(`notifications: ${error instanceof Error ? error.name : "failure"}`);
+	}
+}
+
 export default {
 	async fetch(request) {
 		const nonce = newNonce();
@@ -35,7 +61,8 @@ export default {
 		if (import.meta.env.DEV) return response;
 		return withSecurityHeaders(request, response, { nonce, oidcIssuer: env.OIDC_ISSUER });
 	},
-	// Two Cron Triggers (wrangler.jsonc). Every hour, scans the connections whose time has come.
+	// Two Cron Triggers (wrangler.jsonc). Every hour, scans the connections whose time has come and
+	// then sends the alerts and, on Monday at 08:00 UTC, the weekly summary.
 	// Once a day, clears what is past its time and, after SECRETS_KEY changed, seals workspaces'
 	// secrets again under it.
 	async scheduled(controller) {
@@ -43,6 +70,7 @@ export default {
 			const scans = await scanDue({ db, settings: env });
 			// Counts only: a connection's name or target is the workspace's own business.
 			if (scans.scanned > 0) console.log(`scans: ${JSON.stringify(scans)}`);
+			await notify(controller.scheduledTime);
 			return;
 		}
 		await pruneExpired(db);

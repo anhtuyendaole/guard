@@ -76,6 +76,8 @@ export const FindingAction = z.discriminatedUnion("action", [
 		reason: z.string().trim().min(1, "Say why.").max(MAX_DISMISS_REASON),
 	}),
 	z.object({ action: z.literal("undismiss"), id }),
+	// Any member may say they have looked: it is theirs alone, and the page clears its "New" marks.
+	z.object({ action: z.literal("seen"), at: z.number().int().nonnegative().optional() }),
 ]);
 
 export type FindingActionInput = z.input<typeof FindingAction>;
@@ -125,6 +127,8 @@ export interface FindingView {
 	fixedVersion: string | null;
 	firstSeenAt: number;
 	lastSeenAt: number;
+	/** When it became news (`finding.raised_at`), which is what "New" counts from. */
+	raisedAt: number;
 	status: FindingStatus;
 	dismissReason: string | null;
 	connectionId: string;
@@ -138,6 +142,10 @@ export interface FindingsPage {
 	findings: FindingView[];
 	/** How many findings match, which may be more than are listed. */
 	total: number;
+	/** When this member last opened Findings: what "New" is measured from. */
+	seenAt: number;
+	/** The server's time for this answer, which the page hands back to say it has looked. */
+	loadedAt: number;
 }
 
 /** One UTC day of a zone: the requests Cloudflare's WAF and bot features stopped or challenged. */

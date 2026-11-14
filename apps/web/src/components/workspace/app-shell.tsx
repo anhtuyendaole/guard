@@ -16,7 +16,7 @@ import {
 	UserPlus,
 	UserRound,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import {
@@ -29,6 +29,7 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { authClient } from "#/lib/auth-client";
 import { legalEntries } from "#/lib/legal";
+import { badgeText, FINDINGS_SEEN_EVENT } from "#/lib/new-findings";
 import { cn } from "#/lib/utils";
 import { isAdminRole, useMyRole, useWorkspace } from "./context";
 
@@ -40,6 +41,7 @@ const TEXT = {
 	connections: "Connections",
 	settings: "Settings",
 	server: "Server",
+	newFindings: (count: number) => `${count} new ${count === 1 ? "finding" : "findings"}`,
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -91,8 +93,41 @@ const navLink =
 	"flex h-8 items-center gap-2 rounded-md px-2 text-sm text-foreground/80 hover:bg-accent hover:text-foreground";
 const activeNavLink = "bg-accent font-medium text-foreground";
 
+/**
+ * How many open findings are new to this member, as the server counts them. It is asked again after
+ * every navigation, which is when the count can change for them, and cleared at once when they open
+ * Findings.
+ */
+function useNewFindings(slug: string): number {
+	const [count, setCount] = useState(0);
+	const pathname = useRouterState({ select: (state) => state.location.pathname });
+	const latest = useRef(0);
+
+	const ask = useCallback(() => {
+		// Only the newest question counts: the answer to an older one may arrive after it, and may
+		// predate the member opening Findings.
+		const mine = ++latest.current;
+		fetch(`/api/findings/${encodeURIComponent(slug)}/new`)
+			.then((response) => (response.ok ? (response.json() as Promise<{ count?: unknown }>) : null))
+			.then((body) => {
+				if (mine === latest.current && typeof body?.count === "number") setCount(body.count);
+			})
+			.catch(() => undefined);
+	}, [slug]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asks again on each navigation.
+	useEffect(ask, [ask, pathname]);
+
+	useEffect(() => {
+		window.addEventListener(FINDINGS_SEEN_EVENT, ask);
+		return () => window.removeEventListener(FINDINGS_SEEN_EVENT, ask);
+	}, [ask]);
+	return count;
+}
+
 function Sidebar() {
 	const { slug, user, ownsServer } = useWorkspace();
+	const newFindings = useNewFindings(slug);
 
 	return (
 		<>
@@ -108,6 +143,15 @@ function Sidebar() {
 				>
 					<ShieldAlert className="size-4" />
 					{TEXT.findings}
+					{newFindings > 0 && (
+						<span
+							className="ml-auto rounded-full bg-primary px-1.5 text-xs font-medium tabular-nums text-primary-foreground"
+							title={TEXT.newFindings(newFindings)}
+						>
+							<span aria-hidden="true">{badgeText(newFindings)}</span>
+							<span className="sr-only">{TEXT.newFindings(newFindings)}</span>
+						</span>
+					)}
 				</Link>
 				<Link
 					to="/$workspace/protection"

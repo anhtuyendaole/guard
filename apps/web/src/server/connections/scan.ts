@@ -8,6 +8,7 @@ import {
 } from "@gateweave/guard-scan";
 import type { Database } from "../db";
 import { KEPT_SCANS } from "../db/connections-schema";
+import { raisedAtFor } from "../notifications/rules";
 import { isSealer, sealerFor } from "../secrets";
 import type { SecretsKeySettings } from "../secrets-key";
 import { dependencyFindings, insightFindings, type PresentFinding } from "./findings";
@@ -172,6 +173,7 @@ interface Known {
 	id: string;
 	fingerprint: string;
 	resolved_at: number | null;
+	raised_at: number;
 	subject: string;
 }
 
@@ -348,9 +350,19 @@ async function apply(
 	startedAt: number,
 ): Promise<ScanResult> {
 	const { results: known } = await db.$client
-		.prepare("SELECT id, fingerprint, resolved_at, subject FROM finding WHERE connection_id = ?1")
+		.prepare(
+			"SELECT id, fingerprint, resolved_at, raised_at, subject FROM finding WHERE connection_id = ?1",
+		)
 		.bind(connection.id)
 		.all<Known>();
+	// A connection's first good scan finds what was already there, which is no alert: those findings
+	// count as told. They still show as New to members, who have not seen them.
+	const baseline =
+		(await db.$client
+			.prepare("SELECT 1 AS one FROM scan WHERE connection_id = ?1 AND outcome = 'ok' LIMIT 1")
+			.bind(connection.id)
+			.first()) === null;
+	const knownBy = new Map(known.map((row) => [row.fingerprint, row]));
 	const present = new Set(seen.findings.map((found) => found.fingerprint));
 	const before = new Set(known.map((row) => row.fingerprint));
 	const added = seen.findings.filter((found) => !before.has(found.fingerprint)).length;
@@ -373,16 +385,16 @@ async function apply(
 	};
 	const upsert = db.$client.prepare(
 		`INSERT INTO finding (id, organization_id, connection_id, fingerprint, source, severity, kind,
-			subject, title, url, fixed_version, first_seen_at, last_seen_at)
+			subject, title, url, fixed_version, first_seen_at, last_seen_at, raised_at, notified_at)
 		SELECT json_extract(value, '$.id'), ?1, ?2, json_extract(value, '$.fingerprint'),
 			json_extract(value, '$.source'), json_extract(value, '$.severity'), json_extract(value, '$.kind'),
 			json_extract(value, '$.subject'), json_extract(value, '$.title'), json_extract(value, '$.url'),
-			json_extract(value, '$.fixedVersion'), ?3, ?3
+			json_extract(value, '$.fixedVersion'), ?3, ?3, json_extract(value, '$.raisedAt'), ?5
 		FROM json_each(?4) WHERE true
 		ON CONFLICT (organization_id, fingerprint) DO UPDATE SET
 			severity = excluded.severity, kind = excluded.kind, subject = excluded.subject,
 			title = excluded.title, url = excluded.url, fixed_version = excluded.fixed_version,
-			last_seen_at = excluded.last_seen_at, resolved_at = NULL
+			last_seen_at = excluded.last_seen_at, raised_at = excluded.raised_at, resolved_at = NULL
 		WHERE finding.connection_id = excluded.connection_id`,
 	);
 	const resolve = db.$client.prepare(
@@ -395,7 +407,20 @@ async function apply(
 				connection.organization_id,
 				connection.id,
 				finished,
-				JSON.stringify(chunk.map((found) => ({ id: crypto.randomUUID(), ...found }))),
+				JSON.stringify(
+					chunk.map((found) => {
+						const row = knownBy.get(found.fingerprint);
+						return {
+							id: crypto.randomUUID(),
+							...found,
+							raisedAt: raisedAtFor(
+								row && { raisedAt: row.raised_at, resolvedAt: row.resolved_at },
+								finished,
+							),
+						};
+					}),
+				),
+				baseline ? finished : null,
 			),
 		),
 		...chunks(

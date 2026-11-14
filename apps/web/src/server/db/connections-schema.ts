@@ -8,7 +8,7 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { organization } from "./auth-schema";
+import { organization, user } from "./auth-schema";
 
 /** How many connections one workspace may have. The trigger `connection_is_capped` holds it. */
 export const MAX_CONNECTIONS = 50;
@@ -110,6 +110,17 @@ export const finding = sqliteTable(
 		fixedVersion: text("fixed_version"),
 		firstSeenAt: integer("first_seen_at", { mode: "timestamp_ms" }).notNull(),
 		lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull(),
+		/**
+		 * When the problem became news: its first scan, or the scan that found it again after it had
+		 * been gone for more than a day. A finding that flaps within a day keeps its time, so it is not
+		 * news twice. The "New" badge and the digest count from here.
+		 */
+		raisedAt: integer("raised_at").notNull().default(0),
+		/**
+		 * When an email about it was last settled, sent or not: null until then. A finding with
+		 * `raised_at` after this is waiting for the next alert.
+		 */
+		notifiedAt: integer("notified_at", { mode: "timestamp_ms" }),
 		/** Null while the problem is open. */
 		resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
 		dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" }),
@@ -322,5 +333,57 @@ export const protectionRule = sqliteTable(
 	(table) => [
 		primaryKey({ columns: [table.connectionId, table.zoneId, table.ruleId] }),
 		index("protection_rule_org_idx").on(table.organizationId, table.zoneId),
+	],
+);
+
+/**
+ * What one member chose about notifications in one workspace, and when they last opened Findings.
+ * A switch left null follows the default for their role (on for owners and admins, off for
+ * members), so nobody has a row to set up. The unsubscribe link only ever writes 0.
+ */
+export const notificationPreference = sqliteTable(
+	"notification_preference",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		/** An email when a scan finds new critical or high findings. */
+		alertEmail: integer("alert_email"),
+		/** The Monday summary. */
+		digestEmail: integer("digest_email"),
+		/** The badge counts what was raised after this. Null: since the member joined. */
+		findingsSeenAt: integer("findings_seen_at", { mode: "timestamp_ms" }),
+	},
+	(table) => [
+		primaryKey({ columns: [table.organizationId, table.userId] }),
+		index("notification_preference_user_idx").on(table.userId),
+		check(
+			"notification_preference_switches",
+			sql`(${table.alertEmail} IS NULL OR ${table.alertEmail} IN (0, 1)) AND (${table.digestEmail} IS NULL OR ${table.digestEmail} IN (0, 1))`,
+		),
+	],
+);
+
+/**
+ * Which emails a workspace has had, so that each goes out once. An alert's `period` is unique to
+ * it and the hourly limit looks at `sent_at`; a digest's is its ISO week (`2026-W46`), so that a
+ * retried run finds the week taken. Rows older than 90 days are deleted by the daily run.
+ */
+export const notificationLog = sqliteTable(
+	"notification_log",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		kind: text("kind", { enum: ["alert", "digest"] }).notNull(),
+		period: text("period").notNull(),
+		sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.organizationId, table.kind, table.period] }),
+		check("notification_log_kind", sql`${table.kind} IN ('alert', 'digest')`),
 	],
 );

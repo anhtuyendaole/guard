@@ -11,6 +11,7 @@ import { isAdminRole } from "../../lib/roles";
 import { currentMember } from "../access";
 import { db } from "../auth";
 import { schema } from "../db";
+import { countNewFindings, findingsSeenAt, markFindingsSeen } from "../notifications/seen";
 import { appOrigin } from "../origin";
 
 /** The most findings a page lists. A scan of a repository with more is a problem to fix at its root. */
@@ -40,6 +41,8 @@ export async function listFindings(
 	if (!member) return null;
 	const { workspaceId } = member.membership;
 	const { finding, connection } = schema;
+	const loadedAt = Date.now();
+	const seenAt = await findingsSeenAt(db, workspaceId, member.user.id, member.membership.memberId);
 
 	const status: SQL =
 		filters.status === "dismissed"
@@ -67,6 +70,7 @@ export async function listFindings(
 				fixedVersion: finding.fixedVersion,
 				firstSeenAt: finding.firstSeenAt,
 				lastSeenAt: finding.lastSeenAt,
+				raisedAt: finding.raisedAt,
 				resolvedAt: finding.resolvedAt,
 				dismissedAt: finding.dismissedAt,
 				dismissReason: finding.dismissReason,
@@ -95,11 +99,14 @@ export async function listFindings(
 	return {
 		hasConnections: (connections?.n ?? 0) > 0,
 		total: total?.n ?? 0,
+		seenAt,
+		loadedAt,
 		findings: rows.map(
 			({ resolvedAt, dismissedAt, ...row }): FindingView => ({
 				...row,
 				firstSeenAt: row.firstSeenAt.getTime(),
 				lastSeenAt: row.lastSeenAt.getTime(),
+				raisedAt: row.raisedAt,
 				status: statusOf({ resolvedAt, dismissedAt }),
 			}),
 		),
@@ -114,6 +121,18 @@ export async function readFindings(
 	return page ? answer(page) : notFound();
 }
 
+/**
+ * How many open findings are new to the caller, for the sidebar's badge: raised since they last
+ * opened Findings. Null when the caller is not a member.
+ */
+export async function readNewFindingCount(slug: string): Promise<Response> {
+	const member = await currentMember(slug);
+	if (!member) return notFound();
+	const { workspaceId, memberId } = member.membership;
+	const seenAt = await findingsSeenAt(db, workspaceId, member.user.id, memberId);
+	return answer({ ok: true, count: await countNewFindings(db, workspaceId, seenAt) });
+}
+
 export async function changeFindings(request: Request, slug: string): Promise<Response> {
 	if (request.headers.get("origin") !== appOrigin()) {
 		return refused("Not allowed from there", 403);
@@ -121,12 +140,20 @@ export async function changeFindings(request: Request, slug: string): Promise<Re
 	const member = await currentMember(slug);
 	if (!member) return notFound();
 	const { workspaceId, role } = member.membership;
-	if (!isAdminRole(role)) return refused("Only an owner or admin can dismiss findings.", 403);
 	const parsed = FindingAction.safeParse(await request.json().catch(() => null));
+	// Looking is every member's own business; only changing findings is for admins.
+	const looking = parsed.success && parsed.data.action === "seen";
+	if (!looking && !isAdminRole(role)) {
+		return refused("Only an owner or admin can dismiss findings.", 403);
+	}
 	if (!parsed.success) {
 		return refused(parsed.error.issues[0]?.message ?? "That isn't a change we know.");
 	}
 	const action = parsed.data;
+	if (action.action === "seen") {
+		await markFindingsSeen(db, workspaceId, member.user.id, action.at);
+		return answer({ ok: true });
+	}
 	const { finding } = schema;
 	const mine = and(eq(finding.id, action.id), eq(finding.organizationId, workspaceId));
 

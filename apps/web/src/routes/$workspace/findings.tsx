@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound, useRouter } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LiveButton } from "#/components/live-button";
 import { Button } from "#/components/ui/button";
@@ -29,6 +29,7 @@ import {
 	STATUSES,
 } from "#/lib/connections";
 import { formatDateTime, formatRelative } from "#/lib/dates";
+import { FINDINGS_SEEN_EVENT, isNewSince } from "#/lib/new-findings";
 import { formatNumber } from "#/lib/numbers";
 import { useDocumentTitle } from "#/lib/title";
 import { cn } from "#/lib/utils";
@@ -87,6 +88,8 @@ const TEXT = {
 	undismissed: "Finding is back in the list.",
 	dismissedWhy: (reason: string) => `Dismissed: ${reason}`,
 	resolvedNote: "No longer seen by Guard.",
+	new: "New",
+	newHint: "Raised since you last opened Findings",
 };
 
 export const Route = createFileRoute("/$workspace/findings")({
@@ -115,6 +118,18 @@ function FindingsPage() {
 	const { slug } = useWorkspace();
 	const filters = Route.useSearch();
 	const navigate = Route.useNavigate();
+	// What was new when this page opened stays marked while it is open, through filters and
+	// dismissals. Leaving and coming back starts from what was seen by then.
+	const [seenAt] = useState(page.seenAt);
+
+	// Opening Findings is what clears the badge. It is said once the page is on screen, not in the
+	// loader, which also runs when a link is only hovered.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: once per opening, by design.
+	useEffect(() => {
+		void changeFindings(slug, { action: "seen", at: page.loadedAt }).then((result) => {
+			if (result.ok) window.dispatchEvent(new Event(FINDINGS_SEEN_EVENT));
+		});
+	}, []);
 
 	if (!page.hasConnections) {
 		return (
@@ -191,7 +206,7 @@ function FindingsPage() {
 					</p>
 					<ul className="divide-y rounded-lg border">
 						{page.findings.map((finding) => (
-							<FindingRow key={finding.id} finding={finding} />
+							<FindingRow key={finding.id} finding={finding} isNew={isNewSince(finding, seenAt)} />
 						))}
 					</ul>
 				</>
@@ -243,7 +258,7 @@ function safeHref(url: string): string | null {
 	}
 }
 
-function FindingRow({ finding }: { finding: FindingView }) {
+function FindingRow({ finding, isNew }: { finding: FindingView; isNew: boolean }) {
 	const { slug } = useWorkspace();
 	const router = useRouter();
 	const canManage = isAdminRole(useMyRole());
@@ -270,6 +285,14 @@ function FindingRow({ finding }: { finding: FindingView }) {
 						>
 							{TEXT.severities[finding.severity]}
 						</span>
+						{isNew && (
+							<span
+								title={TEXT.newHint}
+								className="rounded bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground"
+							>
+								{TEXT.new}
+							</span>
+						)}
 						<p className="wrap-anywhere font-medium">{finding.title}</p>
 					</div>
 					<p className="wrap-anywhere text-sm text-muted-foreground">{finding.subject}</p>
