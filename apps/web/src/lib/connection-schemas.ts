@@ -147,6 +147,24 @@ export interface TrafficDayView {
 	mitigated: number;
 }
 
+/** A day of the chart's fixed window: read (0 when nothing was acted on) or not read yet. */
+export interface TrafficSeriesDay {
+	day: string;
+	state: "read" | "unread";
+	mitigated: number;
+}
+
+/** This week against the one before, from the days that were read. */
+export interface TrafficWeek {
+	thisSum: number;
+	/** How many of this week's 7 days were read. */
+	thisRead: number;
+	lastSum: number;
+	lastRead: number;
+	/** A percentage, only when all 14 days are known and last week was not empty. */
+	change: number | null;
+}
+
 export interface TrafficRuleView {
 	ruleId: string;
 	description: string;
@@ -172,18 +190,14 @@ export interface TrafficZoneView {
 	status: TrafficZoneStatus;
 	/** A failure kind, when `status` is `failed`. */
 	failure: string | null;
-	/** The stored days, oldest first. */
-	days: TrafficDayView[];
+	/** The 14 days ending yesterday, oldest first, read or not. */
+	series: TrafficSeriesDay[];
 	/** Yesterday's top rules. */
 	rules: TrafficRuleView[];
 	/** The top countries and hosts over the last seven days. */
 	countries: TrafficNameView[];
 	hosts: TrafficNameView[];
-	/** Mitigated requests in the last seven days and in the seven before them. */
-	thisWeek: number;
-	lastWeek: number;
-	/** The percentage change from last week to this one; null when last week holds nothing. */
-	change: number | null;
+	week: TrafficWeek;
 }
 
 export interface TrafficConnectionView {

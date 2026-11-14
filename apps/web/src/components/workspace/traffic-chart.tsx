@@ -1,4 +1,4 @@
-import type { TrafficDayView } from "#/lib/connection-schemas";
+import type { TrafficSeriesDay } from "#/lib/connection-schemas";
 import { formatUtcDay } from "#/lib/dates";
 import { formatNumber } from "#/lib/numbers";
 
@@ -7,32 +7,54 @@ const GAP = 2;
 const HEIGHT = 40;
 
 /**
- * Mitigated requests per day as bars, drawn inline so that there is no chart library to ship. The
- * picture is for the eye and hidden from assistive technology: the text summary beside it, which
- * the caller writes, says the same in words. Hovering a bar names its day.
+ * Mitigated requests per day over a fixed window of days, drawn inline so that there is no chart
+ * library to ship. A day with nothing stopped is a thin baseline mark; a day Guard has not read is a
+ * dashed empty slot, so that no data is not mistaken for a quiet day. The picture is hidden from
+ * assistive technology: the text summary beside it, which the caller writes, says the same in
+ * words. Hovering a slot names its day.
  */
-export function TrafficChart({ days }: { days: readonly TrafficDayView[] }) {
-	const peak = Math.max(1, ...days.map((day) => day.mitigated));
-	const width = days.length * (BAR + GAP) - GAP;
+export function TrafficChart({ series }: { series: readonly TrafficSeriesDay[] }) {
+	const peak = Math.max(1, ...series.map((day) => day.mitigated));
+	const width = series.length * (BAR + GAP) - GAP;
 	return (
 		<svg
 			aria-hidden="true"
 			focusable="false"
-			viewBox={`0 0 ${Math.max(width, BAR)} ${HEIGHT}`}
+			viewBox={`0 0 ${width} ${HEIGHT}`}
 			preserveAspectRatio="none"
 			className="h-16 w-full text-primary"
 		>
-			{days.map((day, index) => {
-				// A day with nothing still shows a hairline, so a quiet day is not mistaken for a missing one.
-				const height = Math.max(1, Math.round((day.mitigated / peak) * HEIGHT));
+			{series.map((day, index) => {
+				const x = index * (BAR + GAP);
+				if (day.state === "unread") {
+					return (
+						<rect
+							key={day.day}
+							x={x + 0.5}
+							y={0.5}
+							width={BAR - 1}
+							height={HEIGHT - 1}
+							rx={1}
+							fill="none"
+							stroke="currentColor"
+							strokeOpacity={0.35}
+							strokeDasharray="2 2"
+							vectorEffect="non-scaling-stroke"
+						>
+							<title>{`${formatUtcDay(day.day)}: not read yet`}</title>
+						</rect>
+					);
+				}
+				const height =
+					day.mitigated === 0 ? 1 : Math.max(2, Math.round((day.mitigated / peak) * HEIGHT));
 				return (
 					<rect
 						key={day.day}
-						x={index * (BAR + GAP)}
+						x={x}
 						y={HEIGHT - height}
 						width={BAR}
 						height={height}
-						rx={1}
+						rx={day.mitigated === 0 ? 0 : 1}
 						className="fill-current"
 					>
 						<title>{`${formatUtcDay(day.day)}: ${formatNumber(day.mitigated)}`}</title>

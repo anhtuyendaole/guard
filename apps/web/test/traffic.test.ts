@@ -663,12 +663,18 @@ describe("what a person sees and who may see it", () => {
 		const { connection } = await world.connectCloudflare(account, cloudflareToken(30));
 		const org = world.workspaceId;
 		const db = world.guard.db;
-		const zoneRow = (id: string, name: string, lastDay: string | null, failure: string | null) =>
+		const zoneRow = (
+			id: string,
+			name: string,
+			firstDay: string | null,
+			lastDay: string | null,
+			failure: string | null,
+		) =>
 			db
 				.prepare(
-					"INSERT INTO traffic_zone (connection_id, organization_id, zone_id, name, plan, last_day, last_failure, seen_at) VALUES (?1, ?2, ?3, ?4, 'Free Website', ?5, ?6, ?7)",
+					"INSERT INTO traffic_zone (connection_id, organization_id, zone_id, name, plan, first_day, last_day, last_failure, seen_at) VALUES (?1, ?2, ?3, ?4, 'Free Website', ?5, ?6, ?7, ?8)",
 				)
-				.bind(connection.id, org, id, name, lastDay, failure, Date.now())
+				.bind(connection.id, org, id, name, firstDay, lastDay, failure, Date.now())
 				.run();
 		const count = (
 			zone: string,
@@ -699,11 +705,11 @@ describe("what a person sees and who may see it", () => {
 				)
 				.run();
 
-		await zoneRow("z1", "busy.example", day(1), null);
-		await zoneRow("z2", "new.example", day(1), null);
-		await zoneRow("z3", "unread.example", null, null);
-		await zoneRow("z4", "quiet.example", day(1), null);
-		await zoneRow("z5", "refused.example", null, "forbidden");
+		await zoneRow("z1", "busy.example", day(14), day(1), null);
+		await zoneRow("z2", "new.example", day(3), day(1), null);
+		await zoneRow("z3", "unread.example", null, null, null);
+		await zoneRow("z4", "quiet.example", day(5), day(1), null);
+		await zoneRow("z5", "refused.example", null, null, "forbidden");
 		for (let back = 1; back <= 14; back++) {
 			await count("z1", back, "action", "block", "block", "firewallCustom", back <= 7 ? 100 : 50);
 			// Not a mitigated action: it never counts.
@@ -742,11 +748,15 @@ describe("what a person sees and who may see it", () => {
 		);
 		const busy = zones.get("busy.example");
 		expect(busy?.status).toBe("ok");
-		expect(busy?.days).toHaveLength(14);
-		expect(busy?.days[13]).toEqual({ day: day(1), mitigated: 100 });
-		expect(busy?.thisWeek).toBe(700);
-		expect(busy?.lastWeek).toBe(350);
-		expect(busy?.change).toBe(100);
+		expect(busy?.series).toHaveLength(14);
+		expect(busy?.series[13]).toEqual({ day: day(1), state: "read", mitigated: 100 });
+		expect(busy?.week).toEqual({
+			thisSum: 700,
+			thisRead: 7,
+			lastSum: 350,
+			lastRead: 7,
+			change: 100,
+		});
 		expect(busy?.countries).toEqual([
 			{ name: "US", count: 70 },
 			{ name: "DE", count: 35 },
@@ -756,8 +766,16 @@ describe("what a person sees and who may see it", () => {
 			["Block scanners", 40, false],
 			["Managed rules", 12, true],
 		]);
-		expect(zones.get("new.example")?.change).toBeNull();
-		expect(zones.get("new.example")?.thisWeek).toBe(30);
+		// Three days read, the other eleven not: not zeros, and no percentage.
+		const fresh = zones.get("new.example");
+		expect(fresh?.week).toEqual({
+			thisSum: 30,
+			thisRead: 3,
+			lastSum: 0,
+			lastRead: 0,
+			change: null,
+		});
+		expect(fresh?.series.filter((one) => one.state === "unread")).toHaveLength(11);
 		expect(zones.get("unread.example")?.status).toBe("not_scanned");
 		expect(zones.get("quiet.example")?.status).toBe("no_events");
 		expect(zones.get("refused.example")?.status).toBe("failed");
@@ -772,6 +790,8 @@ describe("what a person sees and who may see it", () => {
 		expect(page.text).toContain("sampled");
 		expect(page.text).toContain("partial");
 		expect(page.text).toContain("No data for last week");
+		expect(page.text).toContain("30 this week (3 of 7 days read)");
+		expect(page.text).toContain("11 not read yet");
 		expect(page.text).toContain("Zone › Analytics › Read");
 	});
 

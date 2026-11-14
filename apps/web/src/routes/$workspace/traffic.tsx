@@ -42,18 +42,23 @@ const TEXT = {
 	chartHeading: "Stopped or challenged requests per day",
 	chartSummary: (
 		days: number,
+		unread: number,
 		first: string,
 		last: string,
 		total: string,
 		peak: string,
 		peakDay: string,
 	) =>
-		`Stopped or challenged requests per day, ${first} to ${last} (${days} ${days === 1 ? "day" : "days"}): ${total} in all, at most ${peak} on ${peakDay}.`,
+		`Stopped or challenged requests per day, ${first} to ${last} (${days} days${unread > 0 ? `, ${unread} not read yet` : ""}): ${peak === "0" ? "none on the days read" : `${total} in all, at most ${peak} on ${peakDay}`}.`,
 	weekHeading: "This week against last week",
-	weekLine: (thisWeek: string, lastWeek: string) => `${thisWeek} this week, ${lastWeek} last week.`,
+	weekPart: (label: string, sum: string, read: number, of: number) =>
+		read === 0
+			? `No data for ${label}`
+			: read === of
+				? `${sum} ${label}`
+				: `${sum} ${label} (${read} of ${of} days read)`,
 	weekChange: (percent: number) =>
 		`${percent > 0 ? "+" : percent < 0 ? "−" : ""}${Math.abs(percent)}% on last week`,
-	noWeekData: "No data for last week",
 	rulesHeading: "Top rules yesterday",
 	rulesNone: "No rule events for yesterday.",
 	countriesHeading: "Top countries, last 7 days",
@@ -141,17 +146,20 @@ function ConnectionTraffic({ connection }: { connection: TrafficConnectionView }
 }
 
 function ZoneCard({ zone, connectionName }: { zone: TrafficZoneView; connectionName: string }) {
-	const first = zone.days[0];
-	const last = zone.days[zone.days.length - 1];
-	const peak = zone.days.reduce((best, day) => (day.mitigated > best.mitigated ? day : best), {
-		day: first?.day ?? "",
+	const first = zone.series[0];
+	const last = zone.series[zone.series.length - 1];
+	const peak = zone.series.reduce((best, day) => (day.mitigated > best.mitigated ? day : best), {
+		day: last?.day ?? "",
+		state: "read" as const,
 		mitigated: 0,
 	});
-	const total = zone.days.reduce((sum, day) => sum + day.mitigated, 0);
+	const total = zone.series.reduce((sum, day) => sum + day.mitigated, 0);
+	const unread = zone.series.filter((day) => day.state === "unread").length;
 	const summary =
 		first && last
 			? TEXT.chartSummary(
-					zone.days.length,
+					zone.series.length,
+					unread,
 					formatUtcDay(first.day),
 					formatUtcDay(last.day),
 					formatNumber(total),
@@ -159,6 +167,7 @@ function ZoneCard({ zone, connectionName }: { zone: TrafficZoneView; connectionN
 					formatUtcDay(peak.day),
 				)
 			: "";
+	const { week } = zone;
 	return (
 		<li className="space-y-4 rounded-lg border p-4">
 			<div className="space-y-1">
@@ -172,16 +181,25 @@ function ZoneCard({ zone, connectionName }: { zone: TrafficZoneView; connectionN
 				<>
 					<div className="space-y-2">
 						<h3 className="text-sm font-medium">{TEXT.chartHeading}</h3>
-						<TrafficChart days={zone.days} />
+						<TrafficChart series={zone.series} />
 						<p className="text-sm text-muted-foreground">{summary}</p>
 					</div>
 					<div className="space-y-1">
 						<h3 className="text-sm font-medium">{TEXT.weekHeading}</h3>
 						<p className="text-sm text-muted-foreground">
-							{TEXT.weekLine(formatNumber(zone.thisWeek), formatNumber(zone.lastWeek))}{" "}
-							<span className="font-medium text-foreground">
-								{zone.change === null ? TEXT.noWeekData : TEXT.weekChange(zone.change)}
-							</span>
+							{TEXT.weekPart("this week", formatNumber(week.thisSum), week.thisRead, 7)}
+							{week.lastRead === 0 ? ". " : ", "}
+							{week.lastRead === 0
+								? `${TEXT.weekPart("last week", "", 0, 7)}.`
+								: `${TEXT.weekPart("last week", formatNumber(week.lastSum), week.lastRead, 7)}.`}
+							{week.change !== null && (
+								<>
+									{" "}
+									<span className="font-medium text-foreground">
+										{TEXT.weekChange(week.change)}
+									</span>
+								</>
+							)}
 						</p>
 					</div>
 					<div className="grid gap-4 sm:grid-cols-3">
@@ -241,9 +259,13 @@ function Names({ heading, rows }: { heading: string; rows: TrafficNameView[] }) 
 			) : (
 				<ol className="space-y-1 text-sm">
 					{rows.map((row) => (
-						<li key={row.name} className="flex justify-between gap-2">
-							<span className="wrap-anywhere">{row.name}</span>
-							<span className="text-muted-foreground">{formatNumber(row.count)}</span>
+						<li key={row.name} className="flex items-baseline justify-between gap-2">
+							<span className="min-w-0 truncate" title={row.name}>
+								{row.name}
+							</span>
+							<span className="shrink-0 text-right tabular-nums text-muted-foreground">
+								{formatNumber(row.count)}
+							</span>
 						</li>
 					))}
 				</ol>

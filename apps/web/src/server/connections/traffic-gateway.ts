@@ -7,6 +7,7 @@ import type {
 	TrafficZoneStatus,
 	TrafficZoneView,
 } from "../../lib/connection-schemas";
+import { buildSeries, buildWeek } from "../../lib/traffic-series";
 import { currentMember } from "../access";
 import { db } from "../auth";
 
@@ -32,6 +33,7 @@ interface ZoneRow {
 	zone_id: string;
 	name: string;
 	plan: string | null;
+	first_day: string | null;
 	last_day: string | null;
 	last_failure: string | null;
 }
@@ -77,7 +79,6 @@ export async function listTraffic(slug: string, now = Date.now()): Promise<Traff
 	const org = member.membership.workspaceId;
 	const yesterday = addDays(utcDay(now), -1);
 	const weekStart = addDays(yesterday, -6);
-	const lastWeekStart = addDays(yesterday, -13);
 
 	const [connections, zones, days, rules, names] = await Promise.all([
 		db.$client
@@ -88,7 +89,7 @@ export async function listTraffic(slug: string, now = Date.now()): Promise<Traff
 			.all<ConnectionRow>(),
 		db.$client
 			.prepare(
-				"SELECT connection_id, zone_id, name, plan, last_day, last_failure FROM traffic_zone WHERE organization_id = ?1",
+				"SELECT connection_id, zone_id, name, plan, first_day, last_day, last_failure FROM traffic_zone WHERE organization_id = ?1",
 			)
 			.bind(org)
 			.all<ZoneRow>(),
@@ -151,11 +152,6 @@ export async function listTraffic(slug: string, now = Date.now()): Promise<Traff
 		namesOf.set(key, list);
 	}
 
-	const sum = (list: { day: string; mitigated: number }[], from: string, to: string) =>
-		list.filter((one) => one.day >= from && one.day <= to).reduce((n, one) => n + one.mitigated, 0);
-	const stored = (list: { day: string }[], from: string, to: string) =>
-		list.some((one) => one.day >= from && one.day <= to);
-
 	const views: TrafficConnectionView[] = connections.results.map((connection) => ({
 		id: connection.id,
 		name: connection.name,
@@ -165,28 +161,22 @@ export async function listTraffic(slug: string, now = Date.now()): Promise<Traff
 			.map((zone): TrafficZoneView => {
 				const key = zoneKey(zone.connection_id, zone.zone_id);
 				const list = daysOf.get(key) ?? [];
-				const thisWeek = sum(list, weekStart, yesterday);
-				const lastWeek = sum(list, lastWeekStart, addDays(weekStart, -1));
-				const hasLastWeek = stored(list, lastWeekStart, addDays(weekStart, -1));
+				const series = buildSeries(list, zone.first_day, zone.last_day, yesterday);
+				const week = buildWeek(series);
 				return {
 					zoneId: zone.zone_id,
 					name: zone.name,
 					plan: zone.plan,
 					status: statusOf(zone, list.length),
 					failure: zone.last_failure,
-					days: list,
+					series,
 					rules: rulesOf.get(key) ?? [],
 					countries: namesOf.get(`${key}/country`) ?? [],
 					hosts: namesOf.get(`${key}/host`) ?? [],
-					thisWeek,
-					lastWeek,
-					change:
-						hasLastWeek && lastWeek > 0
-							? Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
-							: null,
+					week,
 				};
 			})
-			.sort((a, b) => b.thisWeek - a.thisWeek || (a.name < b.name ? -1 : 1)),
+			.sort((a, b) => b.week.thisSum - a.week.thisSum || (a.name < b.name ? -1 : 1)),
 	}));
 
 	return { hasConnections: views.length > 0, yesterday, connections: views };
