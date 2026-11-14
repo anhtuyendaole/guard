@@ -8,6 +8,28 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/guard/releases) carries the same
 notes. Publishing a release deploys it.
 
+## [0.3.0] - 2026-11-14
+
+A person can see the AI assistants they allowed and take one back, effective at once.
+
+### Added
+
+- **Assistants you allowed.** Settings, AI assistant, lists each app the person let act as them:
+  the name it gave itself, where it goes ("an app on this computer" for one on their own machine),
+  when it was allowed and last used. "Take back" ends its access at once: its tokens and the
+  consent go, and `/mcp` checks the consent on every call, so even an access token that hasn't
+  expired is refused, and the app has to ask again. Every role sees it.
+  ([#17](https://github.com/gateweavehq/guard/pull/17))
+
+### Changed
+
+- The daily clean-up also deletes OAuth clients that registered themselves more than a day ago and
+  that nobody allowed. ([#17](https://github.com/gateweavehq/guard/pull/17))
+
+### If you run your own
+
+- Nothing to do: no migration and no new setting.
+
 ## [0.2.0] - 2026-11-14
 
 Guard can now be used from an AI assistant. A person pastes Guard's `/mcp` address into Claude
