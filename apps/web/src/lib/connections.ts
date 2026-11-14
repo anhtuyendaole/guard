@@ -6,6 +6,7 @@ import {
 	FindingFilters,
 	type ScanSummary,
 } from "./connection-schemas";
+import type { TrackLinkView } from "./track-schemas";
 
 export * from "./connection-schemas";
 
@@ -64,5 +65,8 @@ export function changeConnections(slug: string, action: ConnectionActionInput) {
 }
 
 export function changeFindings(slug: string, action: FindingActionInput) {
-	return post(`/api/findings/${encodeURIComponent(slug)}`, action);
+	return post<{ track?: TrackLinkView; waiting?: boolean }>(
+		`/api/findings/${encodeURIComponent(slug)}`,
+		action,
+	);
 }

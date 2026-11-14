@@ -161,6 +161,33 @@ many it sealed, how many opened with neither key and how many are still under an
 its connection says it needs attention and an admin replaces the token. Do not lose the key: without
 it, every connection needs a new token.
 
+### Gateweave Track, and a fix from Agents
+
+Findings can be filed as issues in a Gateweave Track, and dependency findings sent on to Gateweave
+Agents for a pull request. An owner or admin sets it up under Settings, Gateweave Track. It needs
+`SECRETS_KEY`, which seals the key, and nothing else on the server.
+
+1. In Track, make an **agent member** for Guard (Settings, Agents) and copy its key, which starts
+   with `gwt_`. It works in that one workspace and acts as itself. If an admin set it to propose
+   some changes, an issue it files waits for a person to accept it, and Guard shows that.
+2. In Guard, give Track's address (`https://track.gateweave.com`, or your own, https only; plain
+   `http://localhost` works only while Guard itself runs on localhost), the workspace's slug, the
+   key of the team that gets the issues, and the key. Guard checks them against Track before it
+   saves, and says what is wrong in a sentence if it cannot.
+3. Optional, for fixes: make a **label** in Track, such as `agent`, give Gateweave Agents a trigger
+   for Track issues carrying that label, and enter the label in Guard. Dependencies with a fixed
+   version then show "Ask Agents for a fix", which files the issue with the label or adds it. Agents
+   opens the pull request, and it shows on the Track issue. Guard never makes labels and holds no
+   Agents secret. Guard also adds a label called `security` to issues it files, but only if the
+   workspace has one.
+
+Guard sends Track a finding's title, severity, versions, advisory, lockfile and repository, or an
+insight's class and subject, and a link back. Insights about multi-factor authentication name
+members by email, and those go to the same team's Track. No token or key of a connection is ever
+sent. Where Guard and Track share a zone, as on Gateweave Cloud, the Worker's
+`global_fetch_strictly_public` flag in `wrangler.jsonc` lets Guard reach Track by its public
+address; keep it if you run both under one domain.
+
 **Scans** run from two Cron Triggers in `wrangler.jsonc`, both inherited by every environment: the
 daily one (`29 3 * * *`) clears what is past its time and seals tokens again after a key change, and
 the hourly one (`0 * * * *`) scans the connections whose day has passed, oldest first, at most 10 an

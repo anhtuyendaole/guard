@@ -4,13 +4,15 @@ import type { Database } from "./db";
 import { schema } from "./db";
 import { isSealer, type Sealer, sealerFor } from "./secrets";
 import { type SecretsKeySettings, secretsKeys } from "./secrets-key";
+import { trackKeyPlace } from "./track/key";
 
 /**
  * Seals workspaces' secrets in D1 again under the current `SECRETS_KEY`, from the daily run: after
  * the key changed, with the old one kept as `SECRETS_KEY_PREVIOUS`, and for values sealed before
  * keys had ids. Each value is opened, sealed under the current key and written back only if it is
  * still the one that was read, so a token replaced meanwhile is left as it now is. Ported from
- * Gateweave Mail, where it seals more than one kind of secret; Guard has one, a connection's token.
+ * Gateweave Mail, where it seals more than one kind of secret; Guard has two: a connection's token
+ * and a workspace's key to Gateweave Track.
  */
 
 /** How many values one run seals again, at most. The next run takes the rest. */
@@ -98,11 +100,47 @@ export async function resealSecrets(
 		if (rows.length < PAGE) break;
 	}
 
-	const left = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(connection)
-		.where(notCurrent(connection.tokenSealed))
-		.get();
-	done.left = left?.count ?? 0;
+	// One Track key per workspace, so a page is the rest of them.
+	const { trackIntegration } = schema;
+	const trackRows = await db
+		.select({
+			workspaceId: trackIntegration.organizationId,
+			sealed: trackIntegration.keySealed,
+		})
+		.from(trackIntegration)
+		.where(notCurrent(trackIntegration.keySealed))
+		.orderBy(trackIntegration.organizationId)
+		.limit(Math.max(0, RESEAL_SECRETS_BATCH - done.resealed))
+		.all();
+	for (const row of trackRows) {
+		const sealed = await again(row.workspaceId, trackKeyPlace(row.workspaceId), row.sealed);
+		if (sealed === null) continue;
+		const written = await db
+			.update(trackIntegration)
+			.set({ keySealed: sealed })
+			.where(
+				and(
+					eq(trackIntegration.organizationId, row.workspaceId),
+					eq(trackIntegration.keySealed, row.sealed),
+				),
+			)
+			.returning({ id: trackIntegration.organizationId })
+			.all();
+		done.resealed += written.length;
+	}
+
+	const [leftConnections, leftTrack] = await Promise.all([
+		db
+			.select({ count: sql<number>`count(*)` })
+			.from(connection)
+			.where(notCurrent(connection.tokenSealed))
+			.get(),
+		db
+			.select({ count: sql<number>`count(*)` })
+			.from(trackIntegration)
+			.where(notCurrent(trackIntegration.keySealed))
+			.get(),
+	]);
+	done.left = (leftConnections?.count ?? 0) + (leftTrack?.count ?? 0);
 	return done;
 }

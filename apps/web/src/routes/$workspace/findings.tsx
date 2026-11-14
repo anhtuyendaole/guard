@@ -32,6 +32,7 @@ import { formatDateTime, formatRelative } from "#/lib/dates";
 import { FINDINGS_SEEN_EVENT, isNewSince } from "#/lib/new-findings";
 import { formatNumber } from "#/lib/numbers";
 import { useDocumentTitle } from "#/lib/title";
+import { safeTrackHref, type TrackStatusView } from "#/lib/track";
 import { cn } from "#/lib/utils";
 
 /** Everything this screen says, in one place, so it can be translated without hunting for it. */
@@ -90,6 +91,21 @@ const TEXT = {
 	resolvedNote: "No longer seen by Guard.",
 	new: "New",
 	newHint: "Raised since you last opened Findings",
+	fileInTrack: "File in Track",
+	filing: "Filing in Track…",
+	openInTrack: (key: string) => `Open ${key} in Track`,
+	openInTrackNoKey: "Open in Track",
+	proposed: "Proposed in Track, waiting for a person",
+	askFix: "Ask Agents for a fix",
+	fixAsked:
+		"Agents was asked for a fix. Its trigger in Track takes it from there, and the pull request shows on the Track issue.",
+	filed: (key: string) => `Filed as ${key} in Track.`,
+	filedProposed: "Proposed in Track. A person there has to accept it first.",
+	fixSent: "Agents asked. Its trigger takes it from there.",
+	fixWaiting: "Track keeps the label as a proposal for a person to accept first.",
+	connectTrackMember: "Ask an admin to connect Gateweave Track to file findings there.",
+	connectTrackAdmin: "Connect Gateweave Track to file findings there.",
+	toTrackSettings: "Settings",
 };
 
 export const Route = createFileRoute("/$workspace/findings")({
@@ -204,9 +220,15 @@ function FindingsPage() {
 							? TEXT.showing(formatNumber(page.findings.length), formatNumber(page.total))
 							: TEXT.count(formatNumber(page.total))}
 					</p>
+					{!page.track.configured && status === "open" && <ConnectTrackLine />}
 					<ul className="divide-y rounded-lg border">
 						{page.findings.map((finding) => (
-							<FindingRow key={finding.id} finding={finding} isNew={isNewSince(finding, seenAt)} />
+							<FindingRow
+								key={finding.id}
+								finding={finding}
+								isNew={isNewSince(finding, seenAt)}
+								track={page.track}
+							/>
 						))}
 					</ul>
 				</>
@@ -258,7 +280,34 @@ function safeHref(url: string): string | null {
 	}
 }
 
-function FindingRow({ finding, isNew }: { finding: FindingView; isNew: boolean }) {
+/** One quiet line, not a button on every row, for a workspace that has not connected Track. */
+function ConnectTrackLine() {
+	const { slug } = useWorkspace();
+	const canManage = isAdminRole(useMyRole());
+	if (!canManage) return <p className="text-sm text-muted-foreground">{TEXT.connectTrackMember}</p>;
+	return (
+		<p className="text-sm text-muted-foreground">
+			{TEXT.connectTrackAdmin}{" "}
+			<Link
+				to="/$workspace/settings/track"
+				params={{ workspace: slug }}
+				className="underline underline-offset-2"
+			>
+				{TEXT.toTrackSettings}
+			</Link>
+		</p>
+	);
+}
+
+function FindingRow({
+	finding,
+	isNew,
+	track,
+}: {
+	finding: FindingView;
+	isNew: boolean;
+	track: TrackStatusView;
+}) {
 	const { slug } = useWorkspace();
 	const router = useRouter();
 	const canManage = isAdminRole(useMyRole());
@@ -272,8 +321,32 @@ function FindingRow({ finding, isNew }: { finding: FindingView; isNew: boolean }
 		await router.invalidate();
 	}
 
+	async function inTrack(action: "file" | "ask-fix") {
+		const result = await changeFindings(slug, { action, id: finding.id });
+		if (!result.ok) toast.error(result.error);
+		else if (action === "file") {
+			const link = result.track;
+			toast.success(
+				link?.state === "proposed" ? TEXT.filedProposed : TEXT.filed(link?.key ?? "Track"),
+			);
+		} else toast.success(result.waiting ? TEXT.fixWaiting : TEXT.fixSent);
+		await router.invalidate();
+	}
+
+	const open = finding.status === "open";
+	const link = finding.track;
+	const trackHref = safeTrackHref(link?.url ?? null);
+	const askFix =
+		open &&
+		track.canAskFix &&
+		finding.source === "dependency" &&
+		finding.fixedVersion !== null &&
+		link?.state !== "proposed" &&
+		link?.state !== "filing" &&
+		!link?.fixRequested;
+
 	return (
-		<li className="space-y-2 p-4">
+		<li id={`finding-${finding.id}`} className="scroll-mt-4 space-y-2 p-4">
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0 space-y-1">
 					<div className="flex flex-wrap items-center gap-2">
@@ -305,6 +378,33 @@ function FindingRow({ finding, isNew }: { finding: FindingView; isNew: boolean }
 							</a>
 						</Button>
 					)}
+					{link?.state === "filing" && (
+						<span className="text-sm text-muted-foreground">{TEXT.filing}</span>
+					)}
+					{link && link.state !== "filing" && trackHref && (
+						<Button asChild variant="outline" size="sm">
+							<a href={trackHref} target="_blank" rel="noreferrer noopener">
+								{link.state === "proposed"
+									? TEXT.proposed
+									: link.key
+										? TEXT.openInTrack(link.key)
+										: TEXT.openInTrackNoKey}
+							</a>
+						</Button>
+					)}
+					{link?.state === "proposed" && !trackHref && (
+						<span className="text-sm text-muted-foreground">{TEXT.proposed}</span>
+					)}
+					{!link && open && track.configured && (
+						<LiveButton variant="outline" size="sm" onClick={() => inTrack("file")}>
+							{TEXT.fileInTrack}
+						</LiveButton>
+					)}
+					{askFix && (
+						<LiveButton variant="outline" size="sm" onClick={() => inTrack("ask-fix")}>
+							{TEXT.askFix}
+						</LiveButton>
+					)}
 					{canManage && finding.status !== "dismissed" && (
 						<Button variant="outline" size="sm" onClick={() => setDismissing(true)}>
 							{TEXT.dismiss}
@@ -326,6 +426,9 @@ function FindingRow({ finding, isNew }: { finding: FindingView; isNew: boolean }
 					` · ${finding.fixedVersion ? TEXT.fixedIn(finding.fixedVersion) : TEXT.noFix}`}
 				{finding.status === "resolved" && ` · ${TEXT.resolvedNote}`}
 			</p>
+			{link?.fixRequested && (
+				<p className="wrap-anywhere text-sm text-muted-foreground">{TEXT.fixAsked}</p>
+			)}
 			{finding.status === "dismissed" && finding.dismissReason && (
 				<p className="wrap-anywhere text-sm text-muted-foreground">
 					{TEXT.dismissedWhy(finding.dismissReason)}

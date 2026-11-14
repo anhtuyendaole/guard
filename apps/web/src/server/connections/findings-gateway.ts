@@ -13,6 +13,7 @@ import { db } from "../auth";
 import { schema } from "../db";
 import { countNewFindings, findingsSeenAt, markFindingsSeen } from "../notifications/seen";
 import { appOrigin } from "../origin";
+import { fileFinding } from "../track/filing";
 
 /** The most findings a page lists. A scan of a repository with more is a problem to fix at its root. */
 export const MAX_LISTED_FINDINGS = 500;
@@ -40,7 +41,7 @@ export async function listFindings(
 	const member = await currentMember(slug);
 	if (!member) return null;
 	const { workspaceId } = member.membership;
-	const { finding, connection } = schema;
+	const { finding, connection, trackIntegration } = schema;
 	const loadedAt = Date.now();
 	const seenAt = await findingsSeenAt(db, workspaceId, member.user.id, member.membership.memberId);
 
@@ -57,7 +58,7 @@ export async function listFindings(
 		filters.source ? eq(finding.source, filters.source) : undefined,
 	);
 
-	const [rows, total, connections] = await Promise.all([
+	const [rows, total, connections, integration] = await Promise.all([
 		db
 			.select({
 				id: finding.id,
@@ -74,6 +75,10 @@ export async function listFindings(
 				resolvedAt: finding.resolvedAt,
 				dismissedAt: finding.dismissedAt,
 				dismissReason: finding.dismissReason,
+				trackState: finding.trackState,
+				trackIssueKey: finding.trackIssueKey,
+				trackIssueUrl: finding.trackIssueUrl,
+				fixRequestedAt: finding.fixRequestedAt,
 				connectionId: connection.id,
 				connectionName: connection.name,
 				connectionKind: connection.kind,
@@ -94,6 +99,11 @@ export async function listFindings(
 			.from(connection)
 			.where(eq(connection.organizationId, workspaceId))
 			.get(),
+		db
+			.select({ fixLabel: trackIntegration.fixLabel })
+			.from(trackIntegration)
+			.where(eq(trackIntegration.organizationId, workspaceId))
+			.get(),
 	]);
 
 	return {
@@ -101,9 +111,26 @@ export async function listFindings(
 		total: total?.n ?? 0,
 		seenAt,
 		loadedAt,
+		track: { configured: integration !== undefined, canAskFix: Boolean(integration?.fixLabel) },
 		findings: rows.map(
-			({ resolvedAt, dismissedAt, ...row }): FindingView => ({
+			({
+				resolvedAt,
+				dismissedAt,
+				trackState,
+				trackIssueKey,
+				trackIssueUrl,
+				fixRequestedAt,
+				...row
+			}): FindingView => ({
 				...row,
+				track: trackState
+					? {
+							state: trackState,
+							key: trackIssueKey,
+							url: trackIssueUrl,
+							fixRequested: fixRequestedAt !== null,
+						}
+					: null,
 				firstSeenAt: row.firstSeenAt.getTime(),
 				lastSeenAt: row.lastSeenAt.getTime(),
 				raisedAt: row.raisedAt,
@@ -141,9 +168,10 @@ export async function changeFindings(request: Request, slug: string): Promise<Re
 	if (!member) return notFound();
 	const { workspaceId, role } = member.membership;
 	const parsed = FindingAction.safeParse(await request.json().catch(() => null));
-	// Looking is every member's own business; only changing findings is for admins.
-	const looking = parsed.success && parsed.data.action === "seen";
-	if (!looking && !isAdminRole(role)) {
+	// Looking is every member's own business, and so is filing a finding in the team's Track, which
+	// only makes an issue there. Only changing findings is for admins.
+	const memberMay = parsed.success && ["seen", "file", "ask-fix"].includes(parsed.data.action);
+	if (!memberMay && !isAdminRole(role)) {
 		return refused("Only an owner or admin can dismiss findings.", 403);
 	}
 	if (!parsed.success) {
@@ -153,6 +181,18 @@ export async function changeFindings(request: Request, slug: string): Promise<Re
 	if (action.action === "seen") {
 		await markFindingsSeen(db, workspaceId, member.user.id, action.at);
 		return answer({ ok: true });
+	}
+	if (action.action === "file" || action.action === "ask-fix") {
+		const result = await fileFinding({
+			workspaceId,
+			userId: member.user.id,
+			findingId: action.id,
+			askFix: action.action === "ask-fix",
+			findingsUrl: `${appOrigin()}/${encodeURIComponent(slug)}/findings`,
+		});
+		if (!result.ok)
+			return result.status === 404 ? notFound() : refused(result.error, result.status);
+		return answer({ ok: true, track: result.link, ...(result.waiting && { waiting: true }) });
 	}
 	const { finding } = schema;
 	const mine = and(eq(finding.id, action.id), eq(finding.organizationId, workspaceId));

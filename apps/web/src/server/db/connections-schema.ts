@@ -29,6 +29,14 @@ export const KEPT_TRAFFIC_DAYS = 90;
 export const TRAFFIC_DIMENSIONS = ["action", "country", "host", "rule"] as const;
 export type TrafficDimension = (typeof TRAFFIC_DIMENSIONS)[number];
 
+/**
+ * Where a finding stands in Gateweave Track: being filed, filed, or proposed for a person to
+ * accept. There is no CHECK on the column: SQLite can only add one by rebuilding `finding`, which a
+ * deploy's migration should not do to the table every scan writes.
+ */
+export const TRACK_STATES = ["filing", "filed", "proposed"] as const;
+export type TrackState = (typeof TRACK_STATES)[number];
+
 export const FINDING_SOURCES = ["cloudflare", "dependency"] as const;
 export type FindingSource = (typeof FINDING_SOURCES)[number];
 
@@ -127,6 +135,19 @@ export const finding = sqliteTable(
 		/** An admin's user id. Not a foreign key, as `connection.added_by`. */
 		dismissedBy: text("dismissed_by"),
 		dismissReason: text("dismiss_reason"),
+		/**
+		 * The Gateweave Track issue this finding was filed as (`track_integration`), kept when the
+		 * integration is removed so that the link stays. `filing` is the claim of whoever is calling
+		 * Track right now, which makes one issue of two clicks; it is let go if Track fails.
+		 */
+		trackState: text("track_state", { enum: TRACK_STATES }),
+		trackIssueKey: text("track_issue_key"),
+		trackIssueUrl: text("track_issue_url"),
+		trackFiledAt: integer("track_filed_at", { mode: "timestamp_ms" }),
+		/** The member's user id. Not a foreign key, as `connection.added_by`. */
+		trackFiledBy: text("track_filed_by"),
+		/** When Agents was asked for a fix, by labelling the issue: see `track_integration.fix_label`. */
+		fixRequestedAt: integer("fix_requested_at", { mode: "timestamp_ms" }),
 	},
 	(table) => [
 		uniqueIndex("finding_fingerprint_unique").on(table.organizationId, table.fingerprint),
@@ -387,3 +408,34 @@ export const notificationLog = sqliteTable(
 		check("notification_log_kind", sql`${table.kind} IN ('alert', 'digest')`),
 	],
 );
+
+/**
+ * "Actions" in docs/architecture.md: the one Gateweave Track a workspace files findings in, and the
+ * key of an agent member there that does it. The key is sealed like a connection's token
+ * (`secrets.ts`), opened only to call Track, and pages see its last four characters. Removing the
+ * integration leaves the links findings already have.
+ */
+export const trackIntegration = sqliteTable("track_integration", {
+	organizationId: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	/** Track's origin, such as `https://track.gateweave.com`. */
+	address: text("address").notNull(),
+	/** The Track workspace's slug, and the key of the team issues go to. */
+	workspaceSlug: text("workspace_slug").notNull(),
+	teamKey: text("team_key").notNull(),
+	/**
+	 * The label whose presence on an issue asks Agents for a fix, through a trigger limited to it.
+	 * Null when nobody asked for that.
+	 */
+	fixLabel: text("fix_label"),
+	keySealed: text("key_sealed").notNull(),
+	/** The key's last four characters. */
+	keyHint: text("key_hint").notNull(),
+	/** The admin's user id. Not a foreign key, as `connection.added_by`. */
+	addedBy: text("added_by").notNull(),
+	addedAt: integer("added_at", { mode: "timestamp_ms" }).notNull(),
+	/** When Track last answered a check or a filing, and how it went: `ok` or a failure kind. */
+	lastCheckAt: integer("last_check_at", { mode: "timestamp_ms" }),
+	lastCheckOutcome: text("last_check_outcome"),
+});

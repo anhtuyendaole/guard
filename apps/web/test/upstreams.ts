@@ -1,9 +1,12 @@
 /**
- * Stands in for Cloudflare's API, GitHub's and OSV, with answers shaped as the real ones are (the
+ * Stands in for Cloudflare's API, GitHub's, OSV and Gateweave Track's MCP server (`fake-track.ts`),
+ * with answers shaped as the real ones are (the
  * shapes `packages/scan` is tested against), so that the Worker's tests never reach the internet.
  * State is plain data a test changes between scans: an insight appears, a package is fixed, a token
  * is revoked.
  */
+
+import { startFakeTrack } from "./fake-track";
 
 export const ACCOUNT_ID = "023e105f4ecef8ad9ca31a8372d0c353";
 export const OTHER_ACCOUNT_ID = "5fb0a1a1b2c3d4e5f60718293a4b5c6d";
@@ -466,7 +469,12 @@ export function startUpstreams() {
 		"osv.test": osvAnswer,
 	};
 
-	const hosts: Record<string, (request: Request) => Response | Promise<Response>> = {};
+	const track = startFakeTrack();
+	// Track's calls are kept apart from `seen`, which tests of scans expect to hold Cloudflare's,
+	// GitHub's and OSV's alone.
+	const hosts: Record<string, (request: Request) => Response | Promise<Response>> = {
+		[track.host]: track.handler,
+	};
 	for (const [host, handler] of Object.entries(handlers)) {
 		hosts[host] = (request) => {
 			const path = new URL(request.url).pathname;
@@ -486,6 +494,8 @@ export function startUpstreams() {
 		advisories,
 		osv,
 		hold,
+		/** Gateweave Track's MCP server. */
+		track,
 		/** Every request that reached a stand-in, oldest first. */
 		seen,
 		/** The GraphQL queries among them, with their variables. */

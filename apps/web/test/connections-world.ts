@@ -9,6 +9,7 @@ import type {
 	ProtectionPage,
 	TrafficPage,
 } from "../src/lib/connection-schemas";
+import type { TrackActionInput, TrackLinkView, TrackPage } from "../src/lib/track-schemas";
 import { isSealer, sealerFor } from "../src/server/secrets";
 import { createWorkspace, signUp } from "./accounts";
 import { startGuard } from "./guard-worker";
@@ -215,8 +216,69 @@ export class World {
 		});
 		return {
 			status: response.status,
-			body: (await response.json()) as { ok: boolean; error?: string },
+			body: (await response.json()) as {
+				ok: boolean;
+				error?: string;
+				track?: TrackLinkView;
+				waiting?: boolean;
+			},
 		};
+	}
+
+	/** Changes the Track integration as this person, through the same endpoint as the page. */
+	async changeTrack(person: Person, action: TrackActionInput, slug = this.slug) {
+		const response = await this.guard.fetch(`${origin}/api/track/${slug}`, {
+			method: "POST",
+			headers: person.headers,
+			body: JSON.stringify(action),
+		});
+		const text = await response.text();
+		return {
+			status: response.status,
+			text,
+			body: JSON.parse(text) as { ok: boolean; error?: string },
+		};
+	}
+
+	async trackPage(person: Person = this.owner, slug = this.slug) {
+		const response = await this.guard.fetch(`${origin}/api/track/${slug}`, {
+			headers: person.headers,
+		});
+		const text = await response.text();
+		return { status: response.status, text, body: JSON.parse(text) as TrackPage };
+	}
+
+	/** What is stored of the workspace's Track integration. */
+	async trackRow() {
+		return this.guard.db
+			.prepare("SELECT * FROM track_integration WHERE organization_id = ?1")
+			.bind(this.workspaceId)
+			.first<{
+				address: string;
+				workspace_slug: string;
+				team_key: string;
+				fix_label: string | null;
+				key_sealed: string;
+				key_hint: string;
+				last_check_outcome: string | null;
+			}>();
+	}
+
+	/** What a finding stores of where it stands in Track. */
+	async findingTrack(id: string) {
+		return this.guard.db
+			.prepare(
+				"SELECT track_state, track_issue_key, track_issue_url, track_filed_at, track_filed_by, fix_requested_at FROM finding WHERE id = ?1",
+			)
+			.bind(id)
+			.first<{
+				track_state: string | null;
+				track_issue_key: string | null;
+				track_issue_url: string | null;
+				track_filed_at: number | null;
+				track_filed_by: string | null;
+				fix_requested_at: number | null;
+			}>();
 	}
 
 	/** A page as the person gets it, HTML and all. */
@@ -307,6 +369,12 @@ export class World {
 			tables.map((table) => this.guard.db.prepare(`SELECT * FROM ${table}`).all()),
 		);
 		return JSON.stringify(rows.map((one: { results: unknown[] }) => one.results));
+	}
+
+	/** What the database holds about the Track integration, as text, to look for what must not be there. */
+	async dumpTrack() {
+		const rows = await this.guard.db.prepare("SELECT * FROM track_integration").all();
+		return JSON.stringify(rows.results);
 	}
 
 	dispose() {
