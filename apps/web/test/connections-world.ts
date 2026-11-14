@@ -6,6 +6,7 @@ import type {
 	ConnectionView,
 	FindingActionInput,
 	FindingsPage,
+	TrafficPage,
 } from "../src/lib/connection-schemas";
 import { isSealer, sealerFor } from "../src/server/secrets";
 import { createWorkspace, signUp } from "./accounts";
@@ -108,6 +109,63 @@ export class World {
 		return { status: response.status, body: (await response.json()) as FindingsPage };
 	}
 
+	async traffic(person: Person = this.owner, slug = this.slug) {
+		const response = await this.guard.fetch(`${origin}/api/traffic/${slug}`, {
+			headers: person.headers,
+		});
+		return { status: response.status, text: await response.text() };
+	}
+
+	async trafficPage(person: Person = this.owner, slug = this.slug) {
+		const response = await this.traffic(person, slug);
+		return { status: response.status, body: JSON.parse(response.text) as TrafficPage };
+	}
+
+	/** The stored daily counts of a connection, in a stable order. */
+	async trafficRows(connectionId: string) {
+		const answer = await this.guard.db
+			.prepare(
+				"SELECT zone_id, day, dimension, key, action, source, description, partial, count FROM traffic_count WHERE connection_id = ?1 ORDER BY zone_id, day, dimension, key, action, source",
+			)
+			.bind(connectionId)
+			.all();
+		return answer.results as {
+			zone_id: string;
+			day: string;
+			dimension: string;
+			key: string;
+			action: string;
+			source: string;
+			description: string | null;
+			partial: number;
+			count: number;
+		}[];
+	}
+
+	async trafficZones(connectionId: string) {
+		const answer = await this.guard.db
+			.prepare(
+				"SELECT zone_id, name, plan, last_day, last_failure FROM traffic_zone WHERE connection_id = ?1 ORDER BY name",
+			)
+			.bind(connectionId)
+			.all();
+		return answer.results as {
+			zone_id: string;
+			name: string;
+			plan: string | null;
+			last_day: string | null;
+			last_failure: string | null;
+		}[];
+	}
+
+	async trafficOutcome(connectionId: string) {
+		const row = await this.guard.db
+			.prepare("SELECT traffic_outcome FROM connection WHERE id = ?1")
+			.bind(connectionId)
+			.first<{ traffic_outcome: string | null }>();
+		return row?.traffic_outcome ?? null;
+	}
+
 	async changeFinding(person: Person, action: FindingActionInput, slug = this.slug) {
 		const response = await this.guard.fetch(`${origin}/api/findings/${slug}`, {
 			method: "POST",
@@ -195,7 +253,7 @@ export class World {
 
 	/** Everything the database holds about connections, as text, to look for what must not be there. */
 	async dump() {
-		const tables = ["connection", "finding", "scan"];
+		const tables = ["connection", "finding", "scan", "traffic_zone", "traffic_count"];
 		const rows = await Promise.all(
 			tables.map((table) => this.guard.db.prepare(`SELECT * FROM ${table}`).all()),
 		);

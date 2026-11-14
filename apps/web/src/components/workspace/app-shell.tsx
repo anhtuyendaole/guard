@@ -1,5 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
+	Activity,
 	ArrowLeftRight,
 	ChevronDown,
 	FileText,
@@ -33,6 +34,7 @@ import { isAdminRole, useMyRole, useWorkspace } from "./context";
 /** The navigation's words, here so that translating them takes one place. */
 const TEXT = {
 	findings: "Findings",
+	traffic: "Traffic",
 	connections: "Connections",
 	settings: "Settings",
 	server: "Server",
@@ -104,6 +106,15 @@ function Sidebar() {
 				>
 					<ShieldAlert className="size-4" />
 					{TEXT.findings}
+				</Link>
+				<Link
+					to="/$workspace/traffic"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<Activity className="size-4" />
+					{TEXT.traffic}
 				</Link>
 				<Link
 					to="/$workspace/connections"

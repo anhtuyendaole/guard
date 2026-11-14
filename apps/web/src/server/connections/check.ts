@@ -3,6 +3,8 @@ import {
 	type FetchOptions,
 	getRepository,
 	listInsights,
+	listZones,
+	probeTraffic,
 	type RepositoryName,
 	UpstreamError,
 } from "@gateweave/guard-scan";
@@ -29,6 +31,10 @@ function trouble(service: "Cloudflare" | "GitHub", error: UpstreamError): string
 	return null;
 }
 
+/** What Guard asks of a Cloudflare token, in the words a refusal and the connect form share. */
+export const CLOUDFLARE_PERMISSIONS =
+	"Account › Security Center Insights › Read on the account with that id, and Zone › Security Center Insights › Read and Zone › Analytics › Read on all its zones";
+
 export async function checkCloudflare(
 	accountId: string,
 	token: string,
@@ -36,16 +42,45 @@ export async function checkCloudflare(
 ): Promise<Checked<null>> {
 	try {
 		await listInsights({ accountId, token }, options);
-		return { ok: true, value: null };
 	} catch (error) {
 		if (!(error instanceof UpstreamError)) throw error;
 		return {
 			ok: false,
 			error:
 				trouble("Cloudflare", error) ??
-				"Cloudflare did not accept this token for that account. It needs the permission Account › Security Center Insights › Read on the account with that id, and Zone › Security Center Insights › Read on its zones.",
+				`Cloudflare did not accept this token for that account. It needs the permissions ${CLOUDFLARE_PERMISSIONS}.`,
 		};
 	}
+	// The zone permissions can't be proved by the insights call: a token without them is accepted
+	// there, and answers with less. So the first zone is asked a small real question.
+	let zone: { id: string } | undefined;
+	try {
+		zone = (await listZones({ accountId, token }, options)).find(
+			(candidate) => candidate.status === "active",
+		);
+	} catch (error) {
+		if (!(error instanceof UpstreamError)) throw error;
+		return {
+			ok: false,
+			error:
+				trouble("Cloudflare", error) ??
+				`Cloudflare would not list this account's zones for this token. It needs the permissions ${CLOUDFLARE_PERMISSIONS}.`,
+		};
+	}
+	if (zone) {
+		try {
+			await probeTraffic({ accountId, token }, zone.id, options);
+		} catch (error) {
+			if (!(error instanceof UpstreamError)) throw error;
+			return {
+				ok: false,
+				error:
+					trouble("Cloudflare", error) ??
+					`Cloudflare did not let this token read the traffic of the account's zones. It needs the permission Zone › Analytics › Read on all zones of the account. All three it asks for are ${CLOUDFLARE_PERMISSIONS}.`,
+			};
+		}
+	}
+	return { ok: true, value: null };
 }
 
 export interface CheckedRepository {

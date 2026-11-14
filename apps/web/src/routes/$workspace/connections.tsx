@@ -59,9 +59,18 @@ const TEXT = {
 	} satisfies Record<string, string>,
 	fix: {
 		cloudflare:
-			"Replace it with a token that has Account › Security Center Insights › Read on this account, and Zone › Security Center Insights › Read on all its zones.",
+			"Replace it with a token that has Account › Security Center Insights › Read on this account, and Zone › Security Center Insights › Read and Zone › Analytics › Read on all its zones.",
 		github: "Replace it with a token for this repository that has Contents: Read-only.",
 	} satisfies Record<ConnectionKind, string>,
+	trafficProblem: {
+		forbidden:
+			"Traffic: the token cannot read it. Replace the token with one that also has Zone › Analytics › Read on all zones.",
+		unauthorized: "Traffic: Cloudflare refused the token.",
+		not_found: "Traffic: Cloudflare did not show the zones to the token.",
+		rate_limited: "Traffic: Cloudflare was limiting requests. Guard tries again within the hour.",
+		unavailable: "Traffic: Cloudflare could not be reached. Guard tries again within the hour.",
+		invalid_response: "Traffic: Cloudflare answered in a way Guard does not understand.",
+	} satisfies Record<string, string>,
 	scanNow: "Scan now",
 	scanning: "Scanning…",
 	replaceToken: "Replace token",
@@ -77,7 +86,7 @@ const TEXT = {
 	cloudflare: {
 		heading: "Connect a Cloudflare account",
 		steps:
-			"Create an account API token with two permissions, both read: Account › Security Center Insights › Read for this account, and Zone › Security Center Insights › Read for all zones of this account. Without the second, Cloudflare gives only the account's own insights, and none about its domains. Guard asks for nothing more and only reads.",
+			"Create an account API token with three permissions, all read: Account › Security Center Insights › Read for this account, and, for all zones of this account, Zone › Security Center Insights › Read and Zone › Analytics › Read. Without the second, Cloudflare gives only the account's own insights, and none about its domains; without the third, Guard cannot count what the WAF and bots did. Guard asks for nothing more and only reads.",
 		tokenPage: "Create an account API token",
 		profilePage: "or a user API token",
 		accountId: "Account id",
@@ -180,6 +189,12 @@ function ConnectionRow({
 	const [removing, setRemoving] = useState(false);
 	const outcome = connection.lastScanOutcome;
 	const attention = outcome !== null && NEEDS_ATTENTION.has(outcome);
+	const trafficOutcome = connection.trafficOutcome;
+	const trafficProblem =
+		trafficOutcome !== null && trafficOutcome !== "ok"
+			? ((TEXT.trafficProblem as Record<string, string>)[trafficOutcome] ??
+				TEXT.trafficProblem.invalid_response)
+			: null;
 	const outcomeText =
 		outcome === null
 			? TEXT.neverScanned
@@ -232,6 +247,17 @@ function ConnectionRow({
 					{outcomeText}
 					{attention && canManage && ` ${TEXT.fix[connection.kind]}`}
 				</p>
+				{trafficProblem && (
+					<p
+						className={
+							trafficOutcome === "forbidden" || trafficOutcome === "unauthorized"
+								? "font-medium text-destructive"
+								: "text-muted-foreground"
+						}
+					>
+						{trafficProblem}
+					</p>
+				)}
 				<p className="text-muted-foreground">
 					{connection.lastScanAt !== null && (
 						<span title={formatDateTime(connection.lastScanAt)}>

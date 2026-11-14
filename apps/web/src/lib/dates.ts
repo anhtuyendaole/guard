@@ -26,6 +26,17 @@ export function formatShortDate(time: number): string {
 	return short.format(time);
 }
 
+const utcDay = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	timeZone: "UTC",
+});
+
+/** "Oct 27" for a UTC day written `YYYY-MM-DD`, in UTC so the label is the day Guard counted. */
+export function formatUtcDay(day: string): string {
+	return utcDay.format(Date.parse(`${day}T00:00:00Z`));
+}
+
 /** "Oct 27, 2026, 5:31 PM", for tooltips. */
 export function formatDateTime(time: number): string {
 	return long.format(time);

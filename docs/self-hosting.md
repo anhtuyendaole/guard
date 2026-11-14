@@ -168,10 +168,14 @@ hour, one after another. A deployment with more than 240 connections falls behin
 "Scans without a Queue" in [architecture.md](architecture.md). Remove the hourly trigger and nothing
 scans except "Scan now".
 
-**What Guard asks for.** Cloudflare: an account API token with two read permissions, Account ›
-Security Center Insights › Read for the account and Zone › Security Center Insights › Read for all
-its zones. With the account one alone the token still works, but Cloudflare leaves out every insight
-about the account's domains. GitHub: a fine-grained token for the one repository, with Contents set to
+**What Guard asks for.** Cloudflare: an account API token with three read permissions, Account ›
+Security Center Insights › Read for the account, and, for all its zones, Zone › Security Center
+Insights › Read and Zone › Analytics › Read. With the account one alone the token still works, but
+Cloudflare leaves out every insight about the account's domains; without Analytics › Read, Guard
+cannot count what the WAF and bots did to each zone (the Traffic page), and the connection says so
+while its Security Insights are still scanned. Connecting checks the Analytics permission on the
+account's first active zone. Guard stores those counts per day and zone for 90 days, and never an
+address, user agent or path. GitHub: a fine-grained token for the one repository, with Contents set to
 Read-only (GitHub adds Metadata itself). Guard only reads. The tokens, the sealed copies and the
 findings live in D1, and Guard sends OSV only package names and versions, never a repository's name or
 files.
