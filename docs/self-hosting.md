@@ -174,7 +174,13 @@ Insights › Read and Zone › Analytics › Read. With the account one alone th
 Cloudflare leaves out every insight about the account's domains; without Analytics › Read, Guard
 cannot count what the WAF and bots did to each zone (the Traffic page), and the connection says so
 while its Security Insights are still scanned. Connecting checks the Analytics permission on the
-account's first active zone. Guard stores those counts per day and zone for 90 days, and never an
+account's first active zone. Three more read permissions are optional, for the Protection page, all on all zones:
+Zone › WAF › Read (custom, managed and rate limiting rules), Zone › Bot Management › Read (Bot Fight
+Mode) and Zone › Zone Settings › Read (security level). Without one, Protection says which is missing
+and the rest still works. A scan costs Cloudflare five more requests a zone; on Workers Paid
+(10,000 subrequests an invocation) that is no limit for an account of a few hundred zones, but on the
+Free plan's 50 only a few zones fit. Guard never reads or stores a rule's expression, which can hold
+secrets. Guard stores those counts per day and zone for 90 days, and never an
 address, user agent or path. GitHub: a fine-grained token for the one repository, with Contents set to
 Read-only (GitHub adds Metadata itself). Guard only reads. The tokens, the sealed copies and the
 findings live in D1, and Guard sends OSV only package names and versions, never a repository's name or

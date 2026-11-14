@@ -12,6 +12,7 @@ import {
 	Settings,
 	Shield,
 	ShieldAlert,
+	ShieldCheck,
 	UserPlus,
 	UserRound,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import { isAdminRole, useMyRole, useWorkspace } from "./context";
 /** The navigation's words, here so that translating them takes one place. */
 const TEXT = {
 	findings: "Findings",
+	protection: "Protection",
 	traffic: "Traffic",
 	connections: "Connections",
 	settings: "Settings",
@@ -106,6 +108,15 @@ function Sidebar() {
 				>
 					<ShieldAlert className="size-4" />
 					{TEXT.findings}
+				</Link>
+				<Link
+					to="/$workspace/protection"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<ShieldCheck className="size-4" />
+					{TEXT.protection}
 				</Link>
 				<Link
 					to="/$workspace/traffic"

@@ -35,6 +35,20 @@ export interface FakeEvent {
 	datetime: string;
 }
 
+/** A rule of a zone's WAF as Cloudflare lists it, expression and all. */
+export interface FakeRule {
+	id: string;
+	action: string;
+	description?: string;
+	enabled?: boolean;
+	expression?: string;
+	last_updated?: string;
+	action_parameters?: Record<string, unknown>;
+}
+
+/** The parts of a zone's protection Guard reads, each of which may be refused alone. */
+export type ProtectionPart = "custom" | "managed" | "rateLimit" | "bot" | "level";
+
 export interface FakeZone {
 	id: string;
 	name: string;
@@ -47,6 +61,18 @@ export interface FakeZone {
 	events: FakeEvent[];
 	eventsEnabled: boolean;
 	maxPageSize: number;
+	/** The entrypoint of each WAF phase. A phase left out answers 404, as a zone with no rules does. */
+	custom?: FakeRule[];
+	managed?: FakeRule[];
+	rateLimit?: FakeRule[];
+	/** The zone's rulesets, which name the managed ones. */
+	rulesets: { id: string; name: string }[];
+	botFightMode: boolean;
+	securityLevel: string;
+	/** Whether the token has Zone WAF, Bot Management and Zone Settings: Read on this zone. */
+	permissions: { waf: boolean; bots: boolean; settings: boolean };
+	/** An HTTP status to answer a part with instead, such as 500. */
+	protectionStatus: Partial<Record<ProtectionPart, number>>;
 }
 
 interface FakeAccount {
@@ -55,6 +81,8 @@ interface FakeAccount {
 	zones: FakeZone[];
 	/** An answer to give instead of the insights, such as 500. */
 	status?: number;
+	/** An answer to give instead of the zone list, such as 500. */
+	zonesStatus?: number;
 	/** Answer GraphQL with Cloudflare's `budget` error, as an account over its limit does. */
 	budget?: boolean;
 }
@@ -246,6 +274,7 @@ export function startUpstreams() {
 		if (request.headers.get("authorization") !== `Bearer ${account.token}`) {
 			return Response.json({ success: false }, { status: 403 });
 		}
+		if (account.zonesStatus) return new Response(null, { status: account.zonesStatus });
 		const url = new URL(request.url);
 		const page = Number(url.searchParams.get("page") ?? 1);
 		const perPage = Number(url.searchParams.get("per_page") ?? 20);
@@ -265,8 +294,61 @@ export function startUpstreams() {
 		});
 	}
 
+	/** A zone's protection, REST: entrypoints, rulesets, bot management and the security level. */
+	function zoneRest(request: Request, zoneId: string, rest: string): Response {
+		const account = [...accounts.values()].find((one) =>
+			one.zones.some((zone) => zone.id === zoneId),
+		);
+		const zone = account?.zones.find((one) => one.id === zoneId);
+		if (!account || !zone || request.headers.get("authorization") !== `Bearer ${account.token}`) {
+			return Response.json({ success: false }, { status: 403 });
+		}
+		const reply = (part: ProtectionPart, allowed: boolean, answer: () => Response): Response => {
+			const status = zone.protectionStatus[part];
+			if (status) return new Response(null, { status });
+			if (!allowed) return Response.json({ success: false }, { status: 403 });
+			return answer();
+		};
+		const entrypoint = (part: ProtectionPart, rules: FakeRule[] | undefined) =>
+			reply(part, zone.permissions.waf, () =>
+				rules
+					? Response.json({ success: true, result: { id: "set", rules } })
+					: Response.json({ success: false }, { status: 404 }),
+			);
+		switch (rest) {
+			case "rulesets/phases/http_request_firewall_custom/entrypoint":
+				return entrypoint("custom", zone.custom);
+			case "rulesets/phases/http_request_firewall_managed/entrypoint":
+				return entrypoint("managed", zone.managed);
+			case "rulesets/phases/http_ratelimit/entrypoint":
+				return entrypoint("rateLimit", zone.rateLimit);
+			case "rulesets":
+				return zone.permissions.waf
+					? Response.json({ success: true, result: zone.rulesets })
+					: Response.json({ success: false }, { status: 403 });
+			case "bot_management":
+				return reply("bot", zone.permissions.bots, () =>
+					Response.json({
+						success: true,
+						result: { fight_mode: zone.botFightMode, enable_js: true },
+					}),
+				);
+			case "settings/security_level":
+				return reply("level", zone.permissions.settings, () =>
+					Response.json({
+						success: true,
+						result: { id: "security_level", value: zone.securityLevel },
+					}),
+				);
+			default:
+				return Response.json({ success: false }, { status: 404 });
+		}
+	}
+
 	async function cloudflare(request: Request, path: string): Promise<Response> {
 		await hold.until;
+		const zonePath = /^\/client\/v4\/zones\/([0-9a-f]{32})\/(.+)$/.exec(path);
+		if (zonePath?.[1] && zonePath[2]) return zoneRest(request, zonePath[1], zonePath[2]);
 		if (path === "/client/v4/graphql") {
 			// The nested query names the account; the single-zone ones name a zone of it.
 			const probe = (await request.clone().json()) as { variables: Record<string, unknown> };
@@ -434,6 +516,11 @@ export function startUpstreams() {
 				events: [],
 				eventsEnabled: true,
 				maxPageSize: 10_000,
+				rulesets: [],
+				botFightMode: true,
+				securityLevel: "medium",
+				permissions: { waf: true, bots: true, settings: true },
+				protectionStatus: {},
 				...fields,
 			};
 			account.zones.push(zone);

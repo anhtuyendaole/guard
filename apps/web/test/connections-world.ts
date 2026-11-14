@@ -6,6 +6,7 @@ import type {
 	ConnectionView,
 	FindingActionInput,
 	FindingsPage,
+	ProtectionPage,
 	TrafficPage,
 } from "../src/lib/connection-schemas";
 import { isSealer, sealerFor } from "../src/server/secrets";
@@ -167,6 +168,45 @@ export class World {
 		return row?.traffic_outcome ?? null;
 	}
 
+	async protection(person: Person = this.owner, slug = this.slug) {
+		const response = await this.guard.fetch(`${origin}/api/protection/${slug}`, {
+			headers: person.headers,
+		});
+		return { status: response.status, text: await response.text() };
+	}
+
+	async protectionPage(person: Person = this.owner, slug = this.slug) {
+		const response = await this.protection(person, slug);
+		return { status: response.status, body: JSON.parse(response.text) as ProtectionPage };
+	}
+
+	/** What is stored of each zone's protection, in a stable order. */
+	async protectionZones(connectionId: string) {
+		const answer = await this.guard.db
+			.prepare("SELECT * FROM protection_zone WHERE connection_id = ?1 ORDER BY name")
+			.bind(connectionId)
+			.all();
+		return answer.results as Record<string, string | number | null>[];
+	}
+
+	async protectionRules(connectionId: string) {
+		const answer = await this.guard.db
+			.prepare(
+				"SELECT zone_id, rule_id, position, action, description, enabled, last_updated FROM protection_rule WHERE connection_id = ?1 ORDER BY zone_id, position",
+			)
+			.bind(connectionId)
+			.all();
+		return answer.results as {
+			zone_id: string;
+			rule_id: string;
+			position: number;
+			action: string;
+			description: string;
+			enabled: number;
+			last_updated: string | null;
+		}[];
+	}
+
 	async changeFinding(person: Person, action: FindingActionInput, slug = this.slug) {
 		const response = await this.guard.fetch(`${origin}/api/findings/${slug}`, {
 			method: "POST",
@@ -254,7 +294,15 @@ export class World {
 
 	/** Everything the database holds about connections, as text, to look for what must not be there. */
 	async dump() {
-		const tables = ["connection", "finding", "scan", "traffic_zone", "traffic_count"];
+		const tables = [
+			"connection",
+			"finding",
+			"scan",
+			"traffic_zone",
+			"traffic_count",
+			"protection_zone",
+			"protection_rule",
+		];
 		const rows = await Promise.all(
 			tables.map((table) => this.guard.db.prepare(`SELECT * FROM ${table}`).all()),
 		);

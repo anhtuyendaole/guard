@@ -87,6 +87,8 @@ const TEXT = {
 		heading: "Connect a Cloudflare account",
 		steps:
 			"Create an account API token with three permissions, all read: Account › Security Center Insights › Read for this account, and, for all zones of this account, Zone › Security Center Insights › Read and Zone › Analytics › Read. Without the second, Cloudflare gives only the account's own insights, and none about its domains; without the third, Guard cannot count what the WAF and bots did. Guard asks for nothing more and only reads.",
+		optional:
+			"Three more read permissions are optional, for the Protection page, all for all zones: Zone › WAF › Read (custom, managed and rate limiting rules), Zone › Bot Management › Read (Bot Fight Mode) and Zone › Zone Settings › Read (security level). Without them Protection says which one is missing.",
 		tokenPage: "Create an account API token",
 		profilePage: "or a user API token",
 		accountId: "Account id",
@@ -428,6 +430,7 @@ function TokenForm({
 					</ExternalLink>
 				)}
 			</p>
+			{cloudflare && <p className="text-sm text-muted-foreground">{TEXT.cloudflare.optional}</p>}
 			{fields}
 			<div className="space-y-1.5">
 				<Label htmlFor="connect-token">{TEXT.tokenLabel}</Label>

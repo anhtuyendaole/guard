@@ -191,6 +191,81 @@ Cloudflare), `apps/web/src/server/connections/traffic.ts` (what a scan reads, ju
   top countries and hosts of the last seven days, and this week against last week. A zone with nothing
   stored says why: not scanned yet, no permission, or nothing acted on.
 
+### Protection
+
+Guard shows what each Cloudflare zone has: which protections are on, the zone's custom WAF rules,
+and what those rules have done. It is for people who do not live in the dashboard, so the page
+speaks in plain sentences, shows at a glance what is wrong, and links each fix to the zone's page in
+Cloudflare. It needs three read permissions on all zones, all optional: Zone › WAF › Read, Zone ›
+Bot Management › Read and Zone › Zone Settings › Read. Connecting still needs only the first three
+(Insights and Analytics). The code is `packages/scan/src/protection.ts` (what is asked of
+Cloudflare), `apps/web/src/server/connections/protection.ts` (what a scan reads, judges and writes),
+`protection-gateway.ts` with the Protection page (what members see), and
+`apps/web/src/lib/protection.ts` (the statuses, sentences and overview counts, which are plain
+functions with unit tests).
+
+- **What is read.** After Traffic, a scan reads each of the zones Traffic listed (the active ones),
+  one zone at a time, with five requests made together: the entrypoint rulesets of the phases
+  `http_request_firewall_custom`, `http_request_firewall_managed` and `http_ratelimit`
+  (`GET /zones/{zone}/rulesets/phases/<phase>/entrypoint`, which answers 404 when the zone has
+  nothing there), `GET /zones/{zone}/bot_management` (`fight_mode`) and
+  `GET /zones/{zone}/settings/security_level`. When a managed ruleset is deployed, a sixth request,
+  `GET /zones/{zone}/rulesets`, gives its name. DDoS is not read (it needs another permission and is
+  always on), and `http_request_sbfm` is not a phase on these zones.
+- **What was measured** on 2026-11-14, on an account of 30 Free zones: the custom entrypoint
+  answers 200 with `rules[]` (`id`, `ref`, `version`, `action`, `description`, `enabled`,
+  `expression`, `last_updated`) or 404 when there are none; the managed one is 404 on all 30; the
+  rate limiting one is 404 when there are no rules; bot management and the security level answer
+  200 with the permission and 403 without it.
+- **A rule's expression is never read or kept.** An expression can hold the customer's own secrets
+  (a header value, an address in a skip rule). The field is left out of every schema in
+  `packages/scan/src/protection.ts`, so zod strips it at the boundary, no column could hold it, and
+  tests fail if one is stored, returned or shown. Of a custom rule Guard keeps its id, action,
+  description (cut to 200 characters), whether it is on, and when it changed.
+- **Each part stands alone.** Every part is `ok`, `none` (a 404 on an entrypoint) or `failed` with a
+  failure kind, and one failing never spoils the others: a token with WAF but not Zone Settings
+  still shows the rules. A failure never fails the scan or the Insights. The zone's row says which
+  parts failed, the page says which permission is missing, and a failure that passes with time brings
+  the next scan within the hour. Only a failure's kind is kept, never a message.
+- **What is stored.** `protection_zone` (one row per connection and zone: each part's state, its
+  values or failure kind, and when it was read) and `protection_rule` (the zone's custom rules,
+  replaced on every scan, so a rule deleted in Cloudflare, or one that can no longer be read, does
+  not linger). Both cascade from the workspace and the connection, and a zone that leaves the account
+  takes its rows with it. They are written in a batch of their own before the findings change, as the
+  traffic is.
+- **Subrequests.** A zone costs five requests (six with a managed ruleset), on top of what Insights
+  and Traffic cost. A Worker on Workers Paid may make 10,000 subrequests an invocation, so an account
+  of a few hundred zones is within it; on the Free plan's 50 only a handful of zones fit. Requests
+  are made five at once, one zone after another.
+- **One finding, from configuration.** `security_level_off`, severity `low`, one per zone, when the
+  security level is `essentially_off`; the fingerprint is
+  `protection:<account>:security_level_off:<zone id>`, so it is one finding while it lasts and
+  resolves on the first scan where the level has changed. Like the spike finding, it is held when
+  the level could not be read, and every one is held when the zones could not be listed or the write
+  failed. Insights already raises Bot Fight Mode and AI-bot findings (`manage_bot_fight_mode`,
+  `no_challenge_ai_bots`) and Guard has seen no class for the security level or for managed rules on a
+  real account (`titles.ts` lists the classes seen), so it raises no finding for managed rules being
+  off: the Protection page shows it, and the overview counts it.
+- **The Protection page** (`/$workspace/protection`, `GET /api/protection/<workspace>`) is for any
+  member and answers a non-member as a missing workspace. At the top, one line per issue across all
+  zones ("Bot Fight Mode off on 21 of 30 zones"); each is a filter on the zone list below. Per zone,
+  a checklist of five lines (managed rules, custom rules, rate limiting, Bot Fight Mode, security
+  level), each with a status in words (Good, Worth a look, Not set up, Not readable, Not read yet),
+  one sentence on why it matters, and where action is needed a "Fix in Cloudflare" link
+  (`apps/web/src/lib/dashboard-links.ts`, the one module that knows the dashboard's paths). A part
+  Guard cannot read says which permission to add and links to Connections. Under the checklist are
+  the zone's custom rules: description, action, on or off, when it changed, and how much it acted.
+- **A rule's activity comes from Traffic.** The page joins `protection_rule.rule_id` with the
+  `traffic_count` rows of dimension `rule` (their key is the rule's id). Traffic keeps only the top
+  10 rules of the 20 busiest zones for each day, from sampled events, so a rule with no row may still
+  have acted. The page therefore says "No activity recorded" and never that a rule did nothing.
+- **Token links.** Cloudflare's docs describe template URLs that pre-fill the token form
+  (`https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=[…]&name=…`, with keys
+  such as `analytics` and `zone_settings`), but list the keys of only a few permissions, and none
+  for WAF, Bot Management or Security Center Insights. A link with guessed keys would tick the wrong
+  boxes without saying so, so the connect form links to the token page and lists the permissions in
+  words.
+
 ### Words and numbers
 
 Every user-facing string of a screen sits in one object (`TEXT`) near the top of its module, and
@@ -338,8 +413,11 @@ People change both on `/settings/account`, through Better Auth's `/update-user` 
 This is where it is going, and it may change. What is above stays as it is: one Worker for the UI,
 the API and auth, with D1 for accounts and workspaces.
 
-- **More traffic rules.** Only the spike is built (see "Traffic"). A rule that fires when Security
-  Insights says managed rules are off while the zone sees no WAF events waits for a measurement of
-  which insight class says so.
+- **More rules from configuration and traffic.** Only the spike and the security level are built
+  (see "Traffic" and "Protection"). A finding for managed rules being off waits for a measurement of
+  which insight class says so; until then the Protection page shows it. Guard does not yet read
+  account-level rulesets, DDoS overrides or Super Bot Fight Mode's settings.
+- **Token links with the permissions ticked** wait for Cloudflare to document the template keys of
+  the WAF, Bot Management and Security Center Insights permissions.
 - **A finding becomes a Gateweave Track issue**, or a fix pull request from Gateweave Agents.
 - **An MCP server**, so agents can read findings.

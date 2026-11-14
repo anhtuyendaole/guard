@@ -239,3 +239,88 @@ export const trafficCount = sqliteTable(
 		check("traffic_count_count", sql`${table.count} >= 0`),
 	],
 );
+
+export const PROTECTION_STATES = ["ok", "none", "failed"] as const;
+export type ProtectionState = (typeof PROTECTION_STATES)[number];
+
+const partIn = (column: string) =>
+	sql.raw(`${column} IN (${PROTECTION_STATES.map((state) => `'${state}'`).join(", ")})`);
+
+/**
+ * What protects a zone, as of its last read: one row per connection and zone, each part with its
+ * state (`ok`, `none` for a 404, or `failed` with the failure kind) and its values. A part's values
+ * are null unless its state is `ok`. The zone's custom rules are in `protection_rule`. Nothing of
+ * a rule's expression is read or kept, since it can hold the customer's own secrets.
+ */
+export const protectionZone = sqliteTable(
+	"protection_zone",
+	{
+		connectionId: text("connection_id")
+			.notNull()
+			.references(() => connection.id, { onDelete: "cascade" }),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		zoneId: text("zone_id").notNull(),
+		name: text("name").notNull(),
+		plan: text("plan"),
+		readAt: integer("read_at", { mode: "timestamp_ms" }).notNull(),
+		customState: text("custom_state", { enum: PROTECTION_STATES }).notNull(),
+		customFailure: text("custom_failure"),
+		managedState: text("managed_state", { enum: PROTECTION_STATES }).notNull(),
+		managedFailure: text("managed_failure"),
+		/** JSON: `[{ id, name, enabled }]`, the managed rulesets deployed. */
+		managedRulesets: text("managed_rulesets"),
+		rateLimitState: text("rate_limit_state", { enum: PROTECTION_STATES }).notNull(),
+		rateLimitFailure: text("rate_limit_failure"),
+		rateLimitTotal: integer("rate_limit_total"),
+		rateLimitEnabled: integer("rate_limit_enabled"),
+		botState: text("bot_state", { enum: PROTECTION_STATES }).notNull(),
+		botFailure: text("bot_failure"),
+		/** 1 or 0; null when Cloudflare did not say. */
+		botFightMode: integer("bot_fight_mode"),
+		securityLevelState: text("security_level_state", { enum: PROTECTION_STATES }).notNull(),
+		securityLevelFailure: text("security_level_failure"),
+		securityLevel: text("security_level"),
+	},
+	(table) => [
+		primaryKey({ columns: [table.connectionId, table.zoneId] }),
+		index("protection_zone_org_idx").on(table.organizationId),
+		check("protection_zone_custom_state", partIn(table.customState.name)),
+		check("protection_zone_managed_state", partIn(table.managedState.name)),
+		check("protection_zone_rate_limit_state", partIn(table.rateLimitState.name)),
+		check("protection_zone_bot_state", partIn(table.botState.name)),
+		check("protection_zone_security_level_state", partIn(table.securityLevelState.name)),
+	],
+);
+
+/**
+ * A zone's custom WAF rules, replaced on every scan. What a person can read of a rule: its
+ * description, action, whether it is on and when it changed. There is deliberately no column for
+ * its expression.
+ */
+export const protectionRule = sqliteTable(
+	"protection_rule",
+	{
+		connectionId: text("connection_id")
+			.notNull()
+			.references(() => connection.id, { onDelete: "cascade" }),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		zoneId: text("zone_id").notNull(),
+		/** Cloudflare's rule id, which `traffic_count` rows of dimension `rule` use as their key. */
+		ruleId: text("rule_id").notNull(),
+		/** The rule's place in the zone's order. */
+		position: integer("position").notNull(),
+		action: text("action").notNull(),
+		description: text("description").notNull(),
+		enabled: integer("enabled").notNull(),
+		/** As Cloudflare writes it. */
+		lastUpdated: text("last_updated"),
+	},
+	(table) => [
+		primaryKey({ columns: [table.connectionId, table.zoneId, table.ruleId] }),
+		index("protection_rule_org_idx").on(table.organizationId, table.zoneId),
+	],
+);
