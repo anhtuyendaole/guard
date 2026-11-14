@@ -166,7 +166,7 @@ export function checksOf(zone: ProtectionZoneView): Check[] {
 			if (level === "under_attack") {
 				return {
 					status: "look",
-					headline: "On: every visitor gets a challenge page",
+					headline: "On",
 					why: "Every visitor gets a challenge page, which can block API clients. Turn it off once an attack is over.",
 					fix: true,
 				};

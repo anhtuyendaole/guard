@@ -63,7 +63,7 @@ describe("a zone's checklist", () => {
 		]);
 		expect(checks[0]?.headline).toBe("Off");
 		expect(checks[1]?.headline).toBe("2 rules, all off");
-		expect(checks[4]?.headline).toBe("On: every visitor gets a challenge page");
+		expect(checks[4]?.headline).toBe("On");
 		expect(checks[4]?.why).toContain("Turn it off once an attack is over.");
 		for (const one of checks) expect(one.why.length).toBeGreaterThan(20);
 	});
