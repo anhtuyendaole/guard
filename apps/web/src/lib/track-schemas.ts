@@ -14,7 +14,7 @@ export const trackKeyField = z
 	.trim()
 	.regex(
 		/^gwt_[A-Za-z0-9_-]{43}$/,
-		"That doesn't look like an agent key from Track: it starts with gwt_.",
+		"That doesn't look like an agent key from Track: it is gwt_ and 43 more characters. Copy it again from the agent's page in Track.",
 	);
 
 const blankToUndefined = (value: unknown) =>

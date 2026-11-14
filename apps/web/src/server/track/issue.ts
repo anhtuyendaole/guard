@@ -129,6 +129,8 @@ export function issueDescription(facts: IssueFacts): string {
 			add("Lockfile", code(parts.lockfile));
 		} else {
 			add("Subject", code(facts.subject));
+			// Agents needs the version to bump to even when the subject is not in the usual shape.
+			if (facts.fixedVersion) add("Fixed in", code(facts.fixedVersion));
 		}
 		add("Advisory", [code(facts.kind), link("read it", facts.url)].filter(Boolean).join(" · "));
 	} else {

@@ -111,6 +111,12 @@ describe("issueDescription", () => {
 		);
 	});
 
+	it("keeps the fixed version when the subject is not in the usual shape", () => {
+		const text = issueDescription({ ...dependency, subject: "lodash 4.17.20 in a lockfile" });
+		expect(text).toContain("- **Subject:** ` lodash 4.17.20 in a lockfile `");
+		expect(text).toContain("- **Fixed in:** ` 4.17.21 `");
+	});
+
 	it("tells what is known of an insight, with Cloudflare's fix link", () => {
 		const text = issueDescription(insight);
 		expect(text).toContain("**Class:** ` hsts_not_enabled `");
