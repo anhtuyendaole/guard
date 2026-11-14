@@ -104,6 +104,25 @@ export async function allowTrackCheck(workspaceId: string): Promise<boolean> {
 	return allowed;
 }
 
+/**
+ * What one assistant may ask of `/mcp` for one person: 60 calls at once, refilling over a minute,
+ * within 600 that refill over an hour. A model working through a list of findings makes bursts, and
+ * a runaway loop or a stolen token should still be stopped well before it matters to the database.
+ */
+export const MCP_CALLS_PER_GRANT: Rule[] = [
+	{ window: 60, max: 60 },
+	{ window: 60 * 60, max: 600 },
+];
+
+/**
+ * Whether this assistant may make another call for this person. Counted per person and OAuth
+ * client rather than per access token, since a client gets a new token on every refresh, which
+ * would start the count again.
+ */
+export function allowMcpCall(userId: string, clientId: string): Promise<Decision> {
+	return consumeDurably(`mcp:${userId}:${clientId}`, MCP_CALLS_PER_GRANT);
+}
+
 const local = new LocalLimiter();
 
 /**

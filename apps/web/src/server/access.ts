@@ -1,6 +1,16 @@
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { db, getAuth } from "./auth";
-import { findMembership } from "./workspaces";
+import { findMembership, type Membership } from "./workspaces";
+
+/**
+ * Someone acting in one workspace, once it is known who they are and that they belong: what the
+ * gateways do after that point is the same whether the person came from a page's session or from an
+ * assistant's access token.
+ */
+export interface Acting {
+	user: { id: string };
+	membership: Membership;
+}
 
 /**
  * The signed-in user and their membership in the workspace with this slug, or null when nobody

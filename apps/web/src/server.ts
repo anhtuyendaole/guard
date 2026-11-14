@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
-import { db } from "./server/auth";
+import { db, handleAuthRequest } from "./server/auth";
 import { scanDue } from "./server/connections/scan";
 import { pruneExpired } from "./server/db/prune";
 import { mailer } from "./server/email";
+import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { sendAlerts, sendDigests } from "./server/notifications/send";
 import { resealSecrets } from "./server/reseal-secrets";
 import { newNonce, withSecurityHeaders } from "./server/security-headers";
@@ -12,6 +13,10 @@ export { RateLimiter } from "./server/rate-limit";
 
 /** The hourly Cron Trigger, as `wrangler.jsonc` writes it. The other one is the daily run. */
 const SCAN_CRON = "0 * * * *";
+
+/** OAuth discovery documents for MCP clients. Better Auth serves them at the root. */
+const OAUTH_DISCOVERY =
+	/^\/\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/|$)/;
 
 /**
  * A branch's Preview gets none of the Worker's bindings or secrets, and accounts can't be run safely
@@ -26,6 +31,10 @@ function notSetUp() {
 
 function route(request: Request, nonce: string): Response | Promise<Response> {
 	if (!env.DB || !env.BETTER_AUTH_SECRET) return notSetUp();
+	const url = new URL(request.url);
+	// Assistants call this with an access token and no cookie; it never reaches a page's handlers.
+	if (isMcpRequest(url)) return handleMcpRequest(request);
+	if (OAUTH_DISCOVERY.test(url.pathname)) return handleAuthRequest(request);
 	return handler.fetch(request, { context: { nonce } });
 }
 

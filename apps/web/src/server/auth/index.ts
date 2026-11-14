@@ -9,6 +9,12 @@ export const db = createDb(env.DB);
 
 const baseURL = env.BETTER_AUTH_URL || undefined;
 
+/**
+ * The MCP endpoint's canonical URL. Assistants' tokens are bound to it, so it exists only when the
+ * base URL is pinned rather than inferred from each request.
+ */
+export const mcpResource = baseURL ? new URL("/mcp", baseURL).href : undefined;
+
 const oidc =
 	env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET
 		? {
@@ -22,8 +28,9 @@ let instance: ReturnType<typeof buildAuth> | undefined;
 
 /**
  * The isolate's one Better Auth instance, built on first use. Better Auth starts resolving its
- * context as soon as it is created, and workerd forbids I/O in global scope, so a plugin that
- * touches the database while doing so would log an error on every cold start.
+ * context as soon as it is created, and the oauth-provider plugin queries D1 while doing so (it
+ * seeds `oauth_resource`). workerd forbids I/O in global scope, so building at module load logs
+ * an error on every cold start.
  */
 export function getAuth() {
 	instance ??= buildAuth();
@@ -66,6 +73,7 @@ function buildAuth() {
 		baseURL,
 		// A deployed Worker answers over HTTPS. Local dev has no certificate.
 		secureCookies: !baseURL && !import.meta.env.DEV,
+		mcpResource,
 		github:
 			env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
 				? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }

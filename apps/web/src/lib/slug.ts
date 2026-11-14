@@ -9,6 +9,7 @@ const RESERVED = new Set([
 	"logout",
 	"mcp",
 	"new",
+	"oauth",
 	"reset-password",
 	"settings",
 	"signup",

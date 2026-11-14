@@ -27,8 +27,9 @@ One Worker (`apps/web`), the same shape as Gateweave Track, Gateweave Agents and
 - **What is past its time** goes once a day, on a Cron Trigger every deployment inherits from
   `wrangler.jsonc` (`apps/web/src/server/db/prune.ts`). Better Auth removes a session or a
   verification only when something looks it up, so those nobody comes back for would otherwise
-  stay, with the address and browser a session holds, and invitations with the address they were
-  sent to. The privacy policy states these, so a change there is a change to it.
+  stay, with the address and browser a session holds, an assistant's expired tokens with the person
+  who approved them, and invitations with the address they were sent to. The privacy policy states
+  these, so a change there is a change to it.
 - **Security headers** go on every answer, and a page also gets a policy that names its scripts by
   a nonce of that response (`security-headers.ts`). Nothing is framed and no host is allowed by
   default; a member's picture may come from GitHub or the sign-in provider's own host.
@@ -379,6 +380,64 @@ see whether it is set up, and the key's last four characters only owners and adm
   go in through Cloudflare, to the Worker that serves it, as Track and Mail do. What Guard fetched
   before (Cloudflare's API, GitHub, OSV, a sign-in provider) is on public hosts and is unchanged.
 
+### MCP: an assistant that acts as the person who approved it
+
+A team asks its AI assistant what is wrong in its Cloudflare account, and the assistant reads Guard.
+`/mcp` is a Model Context Protocol server over Streamable HTTP (`apps/web/src/server/mcp/`), built as
+Gateweave Track's is: a person pastes `https://<guard>/mcp` into Claude Code, Claude.ai or any MCP
+client and signs in in the browser. There is no key to copy.
+
+- **OAuth only.** Better Auth's MCP plugin (`mcp`, with `jwt`) makes Guard an authorization server
+  for the one resource `<origin>/mcp`. It is on only when `BETTER_AUTH_URL` pins Guard's address,
+  since tokens are bound to that URL; without it `/mcp` and the discovery documents answer 404.
+  Clients register themselves (dynamic and unauthenticated registration, five a minute per client
+  address), sign in at `/login` and meet the consent page `/oauth/consent`, which names the app
+  and where the grant goes, since anyone can register a client under any name. Consent is never
+  skipped. Scopes are `openid profile email offline_access guard`. The documents are served at
+  `/.well-known/oauth-protected-resource` (and `.../mcp`),
+  `/.well-known/oauth-authorization-server/api/auth` and
+  `/api/auth/.well-known/openid-configuration`. The plugins add the `jwks` and `oauth_*` tables
+  (`0009_mcp_oauth.sql`); the routes that would let anyone manage clients or grants are closed in
+  `disabledPaths`, and `routes.test.ts` lists every route that is open.
+- **The endpoint verifies the token itself** (`protect.ts`): signature against the keys read
+  in-process rather than over the network (a Worker's request to its own hostname fails in
+  production), issuer, audience (the resource), expiry, `azp`, the `guard` scope, and DPoP binding
+  where a token has one. A failure is a 401 with `WWW-Authenticate` and the protected-resource
+  metadata, as MCP clients expect.
+- **Session cookies are never accepted at `/mcp`.** A page cannot make a signed-in browser call it,
+  and the endpoint reads only the `Authorization` header.
+- **A token acts as the person who approved it,** in every workspace they belong to. Every tool
+  but `list_workspaces` takes the workspace's slug, and `findMembership` checks D1 on each call: a
+  non-member gets the same "not found" as for a missing workspace, in the same words. What a role may
+  do is not decided in the tools. Each tool calls the function the page's endpoint calls after
+  "who is this member": `findingsOf`, `findingOf` and `changeFindingsAs` (`findings-gateway.ts`),
+  `scanNow` (`gateway.ts`) and `trafficOf` (`traffic-gateway.ts`). So a member's token can read and
+  nothing else, an owner's or admin's can also dismiss a finding, with a reason held to the page's
+  bounds, and start a scan under the page's limit of once in a few minutes per connection.
+- **Tools.** `list_workspaces`; `list_findings` (the page's filters, plus kind, connection and
+  "new since I last looked", in the page's order, 50 by default and at most 200 a call, with a cursor
+  that is only an offset); `get_finding` (all the page shows, for a package its installed and fixed
+  versions, lockfile and repository, and who dismissed it and why); `dismiss_finding`;
+  `start_scan`, which waits for the scan and returns its outcome; and `traffic_summary` (the page's
+  periods: 14 days, this week against the last, yesterday's rules, the week's countries and hosts, and
+  what Cloudflare did by action; never addresses, user agents or paths, which Guard does not store).
+  Reading through MCP does not clear the person's "New" badge.
+- **What is never returned:** a token, its hint, a sealed value, a rule's expression (Guard never
+  reads one), the Track key, or anything of another workspace. A finding about multi-factor
+  authentication names the account's members by email, as the page does for every member, so the
+  person's assistant receives what the person can see, and no more: connect only assistants you
+  trust. Titles, subjects and rule descriptions come from Cloudflare accounts and public advisories,
+  and the tool descriptions tell the model to read them as data.
+- **Outputs are loose objects,** because a client keeps a tool's output schema from when it
+  connected and a strict one would fail every call after a field was added. Errors come in English
+  with a stable code: `not_found`, `forbidden`, `invalid`, `rate_limited` or `upstream` (anything
+  unexpected, in words that say nothing about what failed).
+- **Rate limit.** Calls are counted in the `RateLimiter` Durable Object per person and OAuth client
+  (not per token, which changes on every refresh): 60 at once, refilling over a minute, within 600
+  an hour (`allowMcpCall`). Over it, the answer is 429 with `Retry-After`.
+- **The consent page** is a page like the others: the same security headers and policy, nothing
+  cached, light and dark. `oauth` is a reserved workspace slug.
+
 ### Words and numbers
 
 Every user-facing string of a screen sits in one object (`TEXT`) near the top of its module, and
@@ -539,4 +598,8 @@ the API and auth, with D1 for accounts and workspaces.
   (see "Actions"). Not built: asking Agents directly, without Track, which would need an Agents
   secret held in Guard; a comment on the Track issue when its finding resolves, so the issue is not
   left open for a problem that is gone; and a GitHub App for opening the fix without Agents.
-- **An MCP server**, so agents can read findings.
+- **Headless agent keys for MCP.** The MCP server (see "MCP") takes OAuth tokens of people only,
+  as Track does for people. Guard has no agent members, so a job or an agent with no browser cannot
+  sign in. A key tied to a workspace and a role, like Track's agent members', is the follow-up.
+- **More MCP tools.** Filing a finding in Track, bringing a dismissed one back, and listing
+  connections and Protection are on the pages and not in MCP yet.

@@ -31,6 +31,25 @@ export async function findMembership(
 	return row ? { ...row, role: toRole(row.role) } : null;
 }
 
+/** The workspaces a person belongs to, by name, with their role in each. */
+export async function listWorkspaces(
+	db: Database,
+	userId: string,
+): Promise<{ slug: string; name: string; role: MemberRole }[]> {
+	const rows = await db
+		.select({
+			slug: schema.organization.slug,
+			name: schema.organization.name,
+			role: schema.member.role,
+		})
+		.from(schema.member)
+		.innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
+		.where(eq(schema.member.userId, userId))
+		.orderBy(schema.organization.name, schema.organization.slug)
+		.all();
+	return rows.map((row) => ({ ...row, role: toRole(row.role) }));
+}
+
 export interface InvitationPreview {
 	workspaceName: string;
 	workspaceSlug: string;
