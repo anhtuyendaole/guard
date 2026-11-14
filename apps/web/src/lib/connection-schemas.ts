@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TrackLinkView, TrackStatusView } from "./track-schemas";
 
 // What the pages and the endpoints behind them agree on, with nothing of the server in it. The
 // schemas are what the server checks every request against; the pages use the same ones to say what
@@ -78,6 +79,9 @@ export const FindingAction = z.discriminatedUnion("action", [
 	z.object({ action: z.literal("undismiss"), id }),
 	// Any member may say they have looked: it is theirs alone, and the page clears its "New" marks.
 	z.object({ action: z.literal("seen"), at: z.number().int().nonnegative().optional() }),
+	// Filing only makes an issue in the team's own Track, so any member may ask for it.
+	z.object({ action: z.literal("file"), id }),
+	z.object({ action: z.literal("ask-fix"), id }),
 ]);
 
 export type FindingActionInput = z.input<typeof FindingAction>;
@@ -134,6 +138,8 @@ export interface FindingView {
 	connectionId: string;
 	connectionName: string;
 	connectionKind: ConnectionKind;
+	/** Where it stands in Gateweave Track; null when it was never filed there. */
+	track: TrackLinkView | null;
 }
 
 export interface FindingsPage {
@@ -146,6 +152,7 @@ export interface FindingsPage {
 	seenAt: number;
 	/** The server's time for this answer, which the page hands back to say it has looked. */
 	loadedAt: number;
+	track: TrackStatusView;
 }
 
 /** One UTC day of a zone: the requests Cloudflare's WAF and bot features stopped or challenged. */

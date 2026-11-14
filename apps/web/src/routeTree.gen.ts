@@ -26,12 +26,14 @@ import { Route as SettingsAccountRouteImport } from './routes/settings.account'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsNotificationsRouteImport } from './routes/$workspace/settings.notifications'
+import { Route as WorkspaceSettingsTrackRouteImport } from './routes/$workspace/settings.track'
 import { Route as WorkspaceSettingsWorkspaceRouteImport } from './routes/$workspace/settings.workspace'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiConnectionsWorkspaceRouteImport } from './routes/api/connections/$workspace'
 import { Route as ApiFindingsWorkspaceRouteImport } from './routes/api/findings/$workspace'
 import { Route as ApiNotificationsWorkspaceRouteImport } from './routes/api/notifications/$workspace'
 import { Route as ApiProtectionWorkspaceRouteImport } from './routes/api/protection/$workspace'
+import { Route as ApiTrackWorkspaceRouteImport } from './routes/api/track/$workspace'
 import { Route as ApiTrafficWorkspaceRouteImport } from './routes/api/traffic/$workspace'
 import { Route as ApiUnsubscribeTokenRouteImport } from './routes/api/unsubscribe/$token'
 import { Route as ApiFindingsWorkspaceNewRouteImport } from './routes/api/findings/$workspace.new'
@@ -123,6 +125,11 @@ const WorkspaceSettingsNotificationsRoute =
     path: '/notifications',
     getParentRoute: () => WorkspaceSettingsRoute,
   } as any)
+const WorkspaceSettingsTrackRoute = WorkspaceSettingsTrackRouteImport.update({
+  id: '/track',
+  path: '/track',
+  getParentRoute: () => WorkspaceSettingsRoute,
+} as any)
 const WorkspaceSettingsWorkspaceRoute =
   WorkspaceSettingsWorkspaceRouteImport.update({
     id: '/workspace',
@@ -153,6 +160,11 @@ const ApiNotificationsWorkspaceRoute =
 const ApiProtectionWorkspaceRoute = ApiProtectionWorkspaceRouteImport.update({
   id: '/api/protection/$workspace',
   path: '/api/protection/$workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTrackWorkspaceRoute = ApiTrackWorkspaceRouteImport.update({
+  id: '/api/track/$workspace',
+  path: '/api/track/$workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTrafficWorkspaceRoute = ApiTrafficWorkspaceRouteImport.update({
@@ -188,12 +200,14 @@ export interface FileRoutesByFullPath {
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
+  '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
   '/$workspace/settings/workspace': typeof WorkspaceSettingsWorkspaceRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRouteWithChildren
   '/api/notifications/$workspace': typeof ApiNotificationsWorkspaceRoute
   '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
+  '/api/track/$workspace': typeof ApiTrackWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/api/unsubscribe/$token': typeof ApiUnsubscribeTokenRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
@@ -214,12 +228,14 @@ export interface FileRoutesByTo {
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
+  '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
   '/$workspace/settings/workspace': typeof WorkspaceSettingsWorkspaceRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRouteWithChildren
   '/api/notifications/$workspace': typeof ApiNotificationsWorkspaceRoute
   '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
+  '/api/track/$workspace': typeof ApiTrackWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/api/unsubscribe/$token': typeof ApiUnsubscribeTokenRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
@@ -243,12 +259,14 @@ export interface FileRoutesById {
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
+  '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
   '/$workspace/settings/workspace': typeof WorkspaceSettingsWorkspaceRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/connections/$workspace': typeof ApiConnectionsWorkspaceRoute
   '/api/findings/$workspace': typeof ApiFindingsWorkspaceRouteWithChildren
   '/api/notifications/$workspace': typeof ApiNotificationsWorkspaceRoute
   '/api/protection/$workspace': typeof ApiProtectionWorkspaceRoute
+  '/api/track/$workspace': typeof ApiTrackWorkspaceRoute
   '/api/traffic/$workspace': typeof ApiTrafficWorkspaceRoute
   '/api/unsubscribe/$token': typeof ApiUnsubscribeTokenRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
@@ -273,12 +291,14 @@ export interface FileRouteTypes {
     | '/$workspace/'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
+    | '/$workspace/settings/track'
     | '/$workspace/settings/workspace'
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
     | '/api/notifications/$workspace'
     | '/api/protection/$workspace'
+    | '/api/track/$workspace'
     | '/api/traffic/$workspace'
     | '/api/unsubscribe/$token'
     | '/$workspace/settings/'
@@ -299,12 +319,14 @@ export interface FileRouteTypes {
     | '/$workspace'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
+    | '/$workspace/settings/track'
     | '/$workspace/settings/workspace'
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
     | '/api/notifications/$workspace'
     | '/api/protection/$workspace'
+    | '/api/track/$workspace'
     | '/api/traffic/$workspace'
     | '/api/unsubscribe/$token'
     | '/$workspace/settings'
@@ -327,12 +349,14 @@ export interface FileRouteTypes {
     | '/$workspace/'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
+    | '/$workspace/settings/track'
     | '/$workspace/settings/workspace'
     | '/api/auth/$'
     | '/api/connections/$workspace'
     | '/api/findings/$workspace'
     | '/api/notifications/$workspace'
     | '/api/protection/$workspace'
+    | '/api/track/$workspace'
     | '/api/traffic/$workspace'
     | '/api/unsubscribe/$token'
     | '/$workspace/settings/'
@@ -352,6 +376,7 @@ export interface RootRouteChildren {
   ApiFindingsWorkspaceRoute: typeof ApiFindingsWorkspaceRouteWithChildren
   ApiNotificationsWorkspaceRoute: typeof ApiNotificationsWorkspaceRoute
   ApiProtectionWorkspaceRoute: typeof ApiProtectionWorkspaceRoute
+  ApiTrackWorkspaceRoute: typeof ApiTrackWorkspaceRoute
   ApiTrafficWorkspaceRoute: typeof ApiTrafficWorkspaceRoute
   ApiUnsubscribeTokenRoute: typeof ApiUnsubscribeTokenRoute
 }
@@ -477,6 +502,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsNotificationsRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/track': {
+      id: '/$workspace/settings/track'
+      path: '/track'
+      fullPath: '/$workspace/settings/track'
+      preLoaderRoute: typeof WorkspaceSettingsTrackRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/workspace': {
       id: '/$workspace/settings/workspace'
       path: '/workspace'
@@ -519,6 +551,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProtectionWorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/track/$workspace': {
+      id: '/api/track/$workspace'
+      path: '/api/track/$workspace'
+      fullPath: '/api/track/$workspace'
+      preLoaderRoute: typeof ApiTrackWorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/traffic/$workspace': {
       id: '/api/traffic/$workspace'
       path: '/api/traffic/$workspace'
@@ -546,6 +585,7 @@ declare module '@tanstack/react-router' {
 interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsNotificationsRoute: typeof WorkspaceSettingsNotificationsRoute
+  WorkspaceSettingsTrackRoute: typeof WorkspaceSettingsTrackRoute
   WorkspaceSettingsWorkspaceRoute: typeof WorkspaceSettingsWorkspaceRoute
   WorkspaceSettingsIndexRoute: typeof WorkspaceSettingsIndexRoute
 }
@@ -553,6 +593,7 @@ interface WorkspaceSettingsRouteChildren {
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsNotificationsRoute: WorkspaceSettingsNotificationsRoute,
+  WorkspaceSettingsTrackRoute: WorkspaceSettingsTrackRoute,
   WorkspaceSettingsWorkspaceRoute: WorkspaceSettingsWorkspaceRoute,
   WorkspaceSettingsIndexRoute: WorkspaceSettingsIndexRoute,
 }
@@ -608,6 +649,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiFindingsWorkspaceRoute: ApiFindingsWorkspaceRouteWithChildren,
   ApiNotificationsWorkspaceRoute: ApiNotificationsWorkspaceRoute,
   ApiProtectionWorkspaceRoute: ApiProtectionWorkspaceRoute,
+  ApiTrackWorkspaceRoute: ApiTrackWorkspaceRoute,
   ApiTrafficWorkspaceRoute: ApiTrafficWorkspaceRoute,
   ApiUnsubscribeTokenRoute: ApiUnsubscribeTokenRoute,
 }

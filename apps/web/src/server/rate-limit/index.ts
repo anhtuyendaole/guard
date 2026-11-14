@@ -72,6 +72,38 @@ export async function allowConnect(workspaceId: string): Promise<boolean> {
 	return allowed;
 }
 
+/**
+ * Findings a workspace may file in Track, or ask Agents to fix: 30 at once, refilling over a
+ * minute. Each is a call to a server the workspace named, so a stolen session cannot use Guard to
+ * flood it.
+ */
+export const TRACK_FILINGS_PER_WORKSPACE: Rule[] = [{ window: 60, max: 30 }];
+
+/** Whether this workspace may file another finding in Track. Counts this one if so. */
+export async function allowTrackFiling(workspaceId: string): Promise<boolean> {
+	const { allowed } = await consumeDurably(
+		`track-filing:${workspaceId}`,
+		TRACK_FILINGS_PER_WORKSPACE,
+	);
+	return allowed;
+}
+
+/**
+ * Times a workspace may offer Track an address and a key for checking: each is sent to that
+ * address, so a stolen session cannot use Guard to try keys quickly. 20 at once, refilling over an
+ * hour.
+ */
+export const TRACK_CHECKS_PER_WORKSPACE: Rule[] = [{ window: 60 * 60, max: 20 }];
+
+/** Whether this workspace may check another Track address and key. Counts this one if so. */
+export async function allowTrackCheck(workspaceId: string): Promise<boolean> {
+	const { allowed } = await consumeDurably(
+		`track-check:${workspaceId}`,
+		TRACK_CHECKS_PER_WORKSPACE,
+	);
+	return allowed;
+}
+
 const local = new LocalLimiter();
 
 /**

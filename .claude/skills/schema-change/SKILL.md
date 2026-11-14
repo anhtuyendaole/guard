@@ -10,7 +10,7 @@ Guard has one database today, D1. Its tables are Better Auth's: users, sessions,
 verifications, workspaces (organizations), members and invitations, and the deployment's own:
 `deployment`, `sign_up_allow` and `sign_up_pass` (`db/deployment-schema.ts`), and the workspaces'
 `connection`, `finding`, `scan` the traffic tables `traffic_zone` and `traffic_count`, and the protection tables `protection_zone` and
-`protection_rule` (`db/connections-schema.ts`; the trigger that caps connections is `0004_connection_cap.sql`). A column that holds a token holds it sealed, and never in the clear. The schema of
+`protection_rule`, and the Track integration `track_integration` (`db/connections-schema.ts`; the trigger that caps connections is `0004_connection_cap.sql`). A column that holds a token or a key (`connection.token_sealed`, `track_integration.key_sealed`) holds it sealed, and never in the clear. A new column on `finding` is an `ALTER TABLE ADD`; a CHECK on one would make Drizzle Kit rebuild the table, so leave that to the TypeScript type. The schema of
 Better Auth's tables is generated from its configuration, so don't edit
 `apps/web/src/server/db/auth-schema.ts` by hand.
 

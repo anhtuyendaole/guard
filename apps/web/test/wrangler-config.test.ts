@@ -11,6 +11,17 @@ describe("what a deploy does to settings", () => {
 	});
 });
 
+describe("how Guard reaches another Worker on its zone", () => {
+	const config = resolve(import.meta.dirname, "../../../wrangler.jsonc");
+
+	it.each([undefined, "staging", "cloud"])("fetches strictly public hosts, in %s", (env) => {
+		// Guard calls Gateweave Track by its public address. Without the flag, a Track on Guard's own
+		// zone would be asked for at its origin, behind the zone's security settings, and not answer.
+		const { compatibility_flags } = unstable_readConfig({ config, env }, { hideWarnings: true });
+		expect(compatibility_flags).toContain("global_fetch_strictly_public");
+	});
+});
+
 describe("what a branch's Preview gets", () => {
 	it("builds, with none of production's resources", () => {
 		// Wrangler refuses to build a Preview without this block, which fails every push to a branch,

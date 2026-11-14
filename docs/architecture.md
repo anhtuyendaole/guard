@@ -318,6 +318,67 @@ token or its hint, an address, a lockfile's path or anything read from a request
 `BETTER_AUTH_URL`: the hourly run has no request to take the address from, so without it the email
 has no button and no unsubscribe link, and says where to change the setting instead.
 
+### Actions: a finding in Gateweave Track, and a fix from Agents
+
+A finding is fixed where a team plans its work. An owner or admin connects the workspace to **one
+Gateweave Track** in Settings, Gateweave Track (`/api/track/<workspace>`,
+`apps/web/src/server/track/gateway.ts`): Track's address, the Track workspace's slug, the key of the
+team issues go to, an **agent member's key** from that workspace, and optionally a label. Members
+see whether it is set up, and the key's last four characters only owners and admins get.
+
+- **Checked before it is kept.** Saving calls Track's MCP `get_workspace` with the key: the slug
+  must be one the key can see (Track answers the same for a missing workspace and one it cannot
+  see), the team must be in it, and the label, if one is named, must exist, since Guard never makes
+  labels. A failure becomes one sentence (a revoked key, no such workspace or team, an address that
+  is not Track, Track not reachable, or Track's own words). The key is sealed like a connection's
+  token (`track_integration.key_sealed`, additional data `integration/<workspace>/track-key`), is
+  opened only to call Track, and is sealed again by the daily run after `SECRETS_KEY` changes.
+- **The address is where the key goes.** It must be https, with no name or password and no path;
+  `http://localhost` is accepted only while Guard itself runs on localhost (`address.ts`). A kept
+  key is reused only for the address it was made for: a new address needs a new key. No redirect is
+  followed.
+- **The client is Guard's own** (`mcp.ts`): `initialize`, `notifications/initialized` and
+  `tools/call` over Streamable HTTP, with a bearer key, a 10 second timeout, a cap on what it
+  reads, answers as an event stream or JSON, and results parsed with zod (loose objects, as
+  Track's, so a field added there does not break Guard). `@modelcontextprotocol/client` was not
+  taken: it is 7 MB unpacked, for stdio, OAuth and browsers a Worker never uses.
+- **File in Track** (`filing.ts`) is for any member: it only makes an issue in the team's own
+  Track. It calls `create_issue` with the finding's title and subject, a Markdown description,
+  a priority from the severity (critical urgent, high high, moderate medium, low low, unknown none)
+  and the label `security` only when the Track workspace has one. The description holds what Guard
+  knows: severity, source and connection; for a dependency the package, installed and fixed
+  versions, advisory id and link, lockfile and repository; for an insight its class and
+  Cloudflare's fix link; for a WAF spike its sentence, which has the counts; and a link back to the
+  finding. It is built from a short list of facts (`issue.ts`, `IssueFacts`) that has no field for
+  a token, its hint, a secret or anything from the request, and text a scan or an advisory wrote is
+  escaped so that it cannot make a link or a mention. Track sees the agent member only, not the
+  member who pressed the button; Guard keeps who that was (`track_filed_by`).
+- **One issue per finding.** The finding is claimed in D1 with one conditional update (`track_state`
+  `filing`, taking a row that is unclaimed, or whose claim is older than two minutes, and is open)
+  before Track is called, and let go if Track fails, by the same claimant's time, so a slow claim
+  that was taken over cannot release the new one. The result is `filed`, with the issue's key and
+  address (an address on another origin than Track's is replaced by the one Guard builds), or
+  `proposed` when Track kept what was asked as a proposal because an admin set the agent to
+  propose: the page says "Proposed in Track, waiting for a person" and files nothing again.
+  Filing is limited to about 30 a minute per workspace, and checking an address and key to 20 an
+  hour (`rate-limit/index.ts`). Removing the integration keeps the links findings already have.
+- **Ask Agents for a fix** goes through Track. A Gateweave Agents trigger can be limited to Track
+  issues carrying a label (see Agents' architecture, "Triggers"), and one conversation per issue
+  opens the pull request. So the integration has one optional field, the label. When it is set,
+  a dependency finding with a fixed version offers "Ask Agents for a fix", which files the issue
+  with that label too, or, when it was already filed, adds the label with `update_issue` (once:
+  Agents starts a run when the label is added). Guard holds no Agents secret and never talks to
+  Agents; the pull request appears on the Track issue. With no label, nothing is offered, and
+  Settings says how to set one up.
+- **What Track is sent.** Titles, severities, versions, advisory ids, lockfile paths, repository
+  and zone names, and Cloudflare insight subjects, which for multi-factor authentication are
+  members' emails: all of it goes to the team's Track the workspace chose, which Settings says. No
+  token, token hint, key or request detail goes.
+- **Reaching Track from Guard.** Guard and Track are Workers on the same zone in Gateweave Cloud.
+  `global_fetch_strictly_public` in `wrangler.jsonc` makes a request to a host on Guard's own zone
+  go in through Cloudflare, to the Worker that serves it, as Track and Mail do. What Guard fetched
+  before (Cloudflare's API, GitHub, OSV, a sign-in provider) is on public hosts and is unchanged.
+
 ### Words and numbers
 
 Every user-facing string of a screen sits in one object (`TEXT`) near the top of its module, and
@@ -474,5 +535,8 @@ the API and auth, with D1 for accounts and workspaces.
   account-level rulesets, DDoS overrides or Super Bot Fight Mode's settings.
 - **Token links with the permissions ticked** wait for Cloudflare to document the template keys of
   the WAF, Bot Management and Security Center Insights permissions.
-- **A finding becomes a Gateweave Track issue**, or a fix pull request from Gateweave Agents.
+- **More for actions.** "File in Track" and "Ask Agents for a fix" through a Track label are built
+  (see "Actions"). Not built: asking Agents directly, without Track, which would need an Agents
+  secret held in Guard; a comment on the Track issue when its finding resolves, so the issue is not
+  left open for a problem that is gone; and a GitHub App for opening the fix without Agents.
 - **An MCP server**, so agents can read findings.
