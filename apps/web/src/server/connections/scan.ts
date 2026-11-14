@@ -12,6 +12,7 @@ import { isSealer, sealerFor } from "../secrets";
 import type { SecretsKeySettings } from "../secrets-key";
 import { dependencyFindings, insightFindings, type PresentFinding } from "./findings";
 import { tokenPlace } from "./tokens";
+import { readConnectionTraffic, type TrafficRead, unstored } from "./traffic";
 
 /** What a scan needs of the Worker's settings. */
 export interface ScanSettings extends SecretsKeySettings {
@@ -89,24 +90,42 @@ async function claim(db: Database, id: string, now: number, onlyDue: boolean) {
 		.first<Claimed>();
 }
 
+interface Seen {
+	findings: PresentFinding[];
+	unjudged: string[];
+	partial: boolean;
+	/** Fingerprint prefixes of findings this scan could not judge, which stay as they are. */
+	held: string[];
+	/** What the traffic read did, for a Cloudflare connection. */
+	traffic: TrafficRead | null;
+}
+
 /** Reads what the connection can see, and returns what is wrong there now. */
 async function read(
 	deps: ScanDeps,
 	connection: Claimed,
 	token: string,
-): Promise<{ findings: PresentFinding[]; unjudged: string[]; partial: boolean }> {
+	now: number,
+): Promise<Seen> {
 	const options = fetchOptions(deps.settings);
 	if (connection.kind === "cloudflare") {
 		const insights = await listInsights({ accountId: connection.target, token }, options);
-		return {
-			findings: await insightFindings(connection.target, insights),
-			unjudged: [],
-			partial: false,
-		};
+		const findings = await insightFindings(connection.target, insights);
+		// Traffic comes after Insights and never fails them: a token without Analytics › Read still
+		// has its insights scanned, and says what it lacks.
+		let traffic: TrafficRead;
+		try {
+			traffic = await readConnectionTraffic(deps.db, connection, token, options, now);
+		} catch (error) {
+			console.error(`scan: traffic ${error instanceof Error ? error.name : "failure"}`);
+			traffic = unstored(connection);
+		}
+		return { findings, unjudged: [], partial: false, held: [], traffic };
 	}
 	const name = parseRepositoryName(connection.target);
 	if (!name) throw new UpstreamError("github", "not_found", "That is not a repository name");
-	return dependencyFindings(await scanRepository(name, token, options));
+	const scanned = await dependencyFindings(await scanRepository(name, token, options));
+	return { ...scanned, held: [], traffic: null };
 }
 
 /** The failure to record for something that went wrong. Never carries a message: tokens are near. */
@@ -117,11 +136,15 @@ function outcomeOf(error: unknown): UpstreamFailure {
 	return "invalid_response";
 }
 
-/** When to scan a connection again after a scan with this outcome. */
-function nextScanAfter(outcome: ScanOutcome, now: number): number {
+/**
+ * When to scan a connection again after a scan with this outcome. A traffic read that failed in a
+ * way that passes with time brings the next scan forward too: the days it read are stored, so the
+ * second try is cheap.
+ */
+function nextScanAfter(outcome: ScanOutcome, now: number, trafficRetry = false): number {
 	return (
 		now +
-		(outcome === "rate_limited" || outcome === "unavailable"
+		(outcome === "rate_limited" || outcome === "unavailable" || trafficRetry
 			? RETRY_AFTER_FAILURE_MS
 			: SCAN_EVERY_MS)
 	);
@@ -151,7 +174,7 @@ export async function runScan(
 	const connection = await claim(db, connectionId, now, onlyDue);
 	if (!connection) return null;
 
-	let seen: Awaited<ReturnType<typeof read>> | null = null;
+	let seen: Seen | null = null;
 	let failure: ScanOutcome | null = null;
 	try {
 		const sealer = await sealerFor(deps.settings, connection.organization_id);
@@ -164,7 +187,7 @@ export async function runScan(
 			}
 		}
 		if (token === null) failure = "unreadable";
-		else seen = await read(deps, connection, token);
+		else seen = await read(deps, connection, token, now);
 	} catch (error) {
 		failure = outcomeOf(error);
 	}
@@ -178,7 +201,7 @@ export async function runScan(
 				resolved: 0,
 			});
 		}
-		return await apply(db, connection, seen, now);
+		return await apply(db, connection, await withTraffic(db, connection, seen), now);
 	} catch (error) {
 		// The connection may have been removed while this scan ran, or D1 failed. Either way
 		// nothing was written, since each is one batch.
@@ -244,10 +267,36 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
 	return out;
 }
 
+/**
+ * Stores what the traffic read found, in a batch of its own: a traffic write that fails must not
+ * keep the insights from being recorded. If it does fail, nothing of the traffic is judged, and
+ * the findings it made stay as they are until a scan can store it.
+ */
+async function withTraffic(db: Database, connection: Claimed, seen: Seen): Promise<Seen> {
+	let traffic = seen.traffic;
+	if (traffic && traffic.statements.length > 0) {
+		try {
+			await db.$client.batch(traffic.statements);
+		} catch (error) {
+			console.error(
+				`scan: could not store traffic ${error instanceof Error ? error.name : "failure"}`,
+			);
+			traffic = unstored(connection);
+		}
+	}
+	if (!traffic) return seen;
+	return {
+		...seen,
+		findings: [...seen.findings, ...traffic.findings],
+		held: [...seen.held, ...traffic.held],
+		traffic,
+	};
+}
+
 async function apply(
 	db: Database,
 	connection: Claimed,
-	seen: Awaited<ReturnType<typeof read>>,
+	seen: Seen,
 	startedAt: number,
 ): Promise<ScanResult> {
 	const { results: known } = await db.$client
@@ -260,7 +309,9 @@ async function apply(
 	// What this scan could not see is not gone: a lockfile it could not read, or part of a
 	// repository GitHub did not list.
 	const unseen = (row: Known) =>
-		seen.partial || seen.unjudged.some((path) => row.subject.endsWith(` in ${path}`));
+		seen.partial ||
+		seen.unjudged.some((path) => row.subject.endsWith(` in ${path}`)) ||
+		seen.held.some((prefix) => row.fingerprint.startsWith(prefix));
 	const gone = known.filter(
 		(row) => row.resolved_at === null && !present.has(row.fingerprint) && !unseen(row),
 	);
@@ -306,9 +357,14 @@ async function apply(
 		db.$client
 			.prepare(
 				`UPDATE connection SET last_scan_at = ?1, last_scan_outcome = 'ok', next_scan_at = ?2,
-					scan_started_at = NULL WHERE id = ?3`,
+					scan_started_at = NULL, traffic_outcome = ?3 WHERE id = ?4`,
 			)
-			.bind(finished, nextScanAfter("ok", finished), connection.id),
+			.bind(
+				finished,
+				nextScanAfter("ok", finished, seen.traffic?.retry ?? false),
+				seen.traffic?.outcome ?? null,
+				connection.id,
+			),
 		...insertScan(db, connection.id, startedAt, result),
 	]);
 	return result;

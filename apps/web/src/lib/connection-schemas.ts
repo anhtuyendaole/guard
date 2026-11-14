@@ -101,6 +101,11 @@ export interface ConnectionView {
 	lastScanOutcome: string | null;
 	nextScanAt: number;
 	openFindings: number;
+	/**
+	 * How reading WAF and bot traffic went, for a Cloudflare connection: `ok` or a failure kind.
+	 * Null for a repository, and until the first scan has run.
+	 */
+	trafficOutcome: string | null;
 }
 
 export interface ConnectionsPage {
@@ -133,6 +138,82 @@ export interface FindingsPage {
 	findings: FindingView[];
 	/** How many findings match, which may be more than are listed. */
 	total: number;
+}
+
+/** One UTC day of a zone: the requests Cloudflare's WAF and bot features stopped or challenged. */
+export interface TrafficDayView {
+	/** `YYYY-MM-DD`. */
+	day: string;
+	mitigated: number;
+}
+
+/** A day of the chart's fixed window: read (0 when nothing was acted on) or not read yet. */
+export interface TrafficSeriesDay {
+	day: string;
+	state: "read" | "unread";
+	mitigated: number;
+}
+
+/** This week against the one before, from the days that were read. */
+export interface TrafficWeek {
+	thisSum: number;
+	/** How many of this week's 7 days were read. */
+	thisRead: number;
+	lastSum: number;
+	lastRead: number;
+	/** A percentage, only when all 14 days are known and last week was not empty. */
+	change: number | null;
+}
+
+export interface TrafficRuleView {
+	ruleId: string;
+	description: string;
+	source: string;
+	action: string;
+	/** An estimate: events are sampled, each counted for the requests it stands for. */
+	count: number;
+	/** The day's events were cut short, so this is a part of the day. */
+	partial: boolean;
+}
+
+export interface TrafficNameView {
+	name: string;
+	count: number;
+}
+
+export type TrafficZoneStatus = "ok" | "failed" | "not_scanned" | "no_events";
+
+export interface TrafficZoneView {
+	zoneId: string;
+	name: string;
+	plan: string | null;
+	status: TrafficZoneStatus;
+	/** A failure kind, when `status` is `failed`. */
+	failure: string | null;
+	/** The 14 days ending yesterday, oldest first, read or not. */
+	series: TrafficSeriesDay[];
+	/** Yesterday's top rules. */
+	rules: TrafficRuleView[];
+	/** The top countries and hosts over the last seven days. */
+	countries: TrafficNameView[];
+	hosts: TrafficNameView[];
+	week: TrafficWeek;
+}
+
+export interface TrafficConnectionView {
+	id: string;
+	name: string;
+	/** `ok` or a failure kind; null until a scan has run. */
+	outcome: string | null;
+	zones: TrafficZoneView[];
+}
+
+export interface TrafficPage {
+	/** Whether the workspace has a Cloudflare connection, which is what tells "nothing yet" from "no data". */
+	hasConnections: boolean;
+	/** The last complete UTC day, `YYYY-MM-DD`. */
+	yesterday: string;
+	connections: TrafficConnectionView[];
 }
 
 /** A scan's result, as the page that asked for it shows it. */

@@ -9,8 +9,8 @@ description: Change the D1 database schema in Gateweave Guard with a proper migr
 Guard has one database today, D1. Its tables are Better Auth's: users, sessions, accounts,
 verifications, workspaces (organizations), members and invitations, and the deployment's own:
 `deployment`, `sign_up_allow` and `sign_up_pass` (`db/deployment-schema.ts`), and the workspaces'
-`connection`, `finding` and `scan` (`db/connections-schema.ts`; the trigger that caps connections is
-`0004_connection_cap.sql`). A column that holds a token holds it sealed, and never in the clear. The schema of
+`connection`, `finding`, `scan` and the traffic tables `traffic_zone` and `traffic_count`
+(`db/connections-schema.ts`; the trigger that caps connections is `0004_connection_cap.sql`). A column that holds a token holds it sealed, and never in the clear. The schema of
 Better Auth's tables is generated from its configuration, so don't edit
 `apps/web/src/server/db/auth-schema.ts` by hand.
 

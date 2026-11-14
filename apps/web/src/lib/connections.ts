@@ -25,6 +25,14 @@ export const getFindings = createServerFn({ method: "GET" })
 		return listFindings(data.slug, data.filters);
 	});
 
+/** The WAF and bot traffic of the workspace with this slug, or null when the caller is not in it. */
+export const getTraffic = createServerFn({ method: "GET" })
+	.validator(z.string().min(1))
+	.handler(async ({ data: slug }) => {
+		const { listTraffic } = await import("#/server/connections/traffic-gateway");
+		return listTraffic(slug);
+	});
+
 export type Answer<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 async function post<T>(url: string, body: unknown): Promise<Answer<T>> {

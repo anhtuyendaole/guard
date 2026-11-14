@@ -797,9 +797,11 @@ describe("the hourly run", () => {
 					).results as { id: string }[]
 				).map((row) => row.id);
 			expect(await scanned()).toEqual(ids.slice(0, 10));
-			expect(world.upstream.seen.filter((seen) => seen.host === "cloudflare.test")).toHaveLength(
-				10,
-			);
+			expect(
+				world.upstream.seen.filter(
+					(seen) => seen.host === "cloudflare.test" && seen.path.endsWith("/insights"),
+				),
+			).toHaveLength(10);
 			expect(
 				world.guard.logs.some((log) => log.message.includes('scans: {"scanned":10,"failed":0}')),
 			).toBe(true);
@@ -823,7 +825,9 @@ describe("the hourly run", () => {
 			world.upstream.addAccount(ACCOUNT_ID, token, [insight("i1", "dmarc")]);
 			const { connection } = await world.connectCloudflare(ACCOUNT_ID, token);
 			const cloudflareCalls = () =>
-				world.upstream.seen.filter((seen) => seen.host === "cloudflare.test").length;
+				world.upstream.seen.filter(
+					(seen) => seen.host === "cloudflare.test" && seen.path.endsWith("/insights"),
+				).length;
 			const before = cloudflareCalls();
 			await world.guard.db
 				.prepare("UPDATE connection SET next_scan_at = 0 WHERE id = ?1")
@@ -869,7 +873,9 @@ describe("the hourly run", () => {
 			world.upstream.addAccount(ACCOUNT_ID, token, [insight("i1", "dmarc")]);
 			const { connection } = await world.connectCloudflare(ACCOUNT_ID, token);
 			const calls = () =>
-				world.upstream.seen.filter((seen) => seen.host === "cloudflare.test").length;
+				world.upstream.seen.filter(
+					(seen) => seen.host === "cloudflare.test" && seen.path.endsWith("/insights"),
+				).length;
 			const before = calls();
 			const set = (startedAgo: number) =>
 				world.guard.db
@@ -1084,9 +1090,15 @@ describe("removing a connection", () => {
 			});
 			const running = world.guard.runScheduled(0, "0 * * * *");
 			await expect
-				.poll(() => world.upstream.seen.filter((seen) => seen.host === "cloudflare.test").length, {
-					timeout: 10_000,
-				})
+				.poll(
+					() =>
+						world.upstream.seen.filter(
+							(seen) => seen.host === "cloudflare.test" && seen.path.endsWith("/insights"),
+						).length,
+					{
+						timeout: 10_000,
+					},
+				)
 				.toBeGreaterThan(2);
 			expect(
 				(await world.act(world.owner, { action: "remove", id: connection.id }, world.slug, 1))
@@ -1096,7 +1108,7 @@ describe("removing a connection", () => {
 			world.upstream.hold.until = null;
 			await running;
 			// The scan found its connection gone and wrote nothing.
-			expect(await world.dump()).toBe("[[],[],[]]");
+			expect(await world.dump()).toBe("[[],[],[],[],[]]");
 		} finally {
 			await world.dispose();
 		}

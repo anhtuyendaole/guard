@@ -52,6 +52,7 @@ async function viewsOf(workspaceId: string, only?: string): Promise<ConnectionVi
 			lastScanAt: connection.lastScanAt,
 			lastScanOutcome: connection.lastScanOutcome,
 			nextScanAt: connection.nextScanAt,
+			trafficOutcome: connection.trafficOutcome,
 			// Written out by hand: Drizzle leaves the table off a column in a query of one table, and
 			// `connection_id = id` inside this subquery would then compare the finding with itself.
 			openFindings: sql<number>`(

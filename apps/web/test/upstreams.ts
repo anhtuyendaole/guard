@@ -17,11 +17,53 @@ export interface FakeInsight {
 	dismissed?: boolean;
 }
 
+/** What a zone's security features did on one UTC day, as Cloudflare's analytics groups it. */
+export interface FakeDay {
+	actions: { action: string; source: string; count: number }[];
+	countries?: { name: string; action: string; count: number }[];
+	hosts?: { name: string; action: string; count: number }[];
+}
+
+/** One sampled firewall event, with the fields Guard asks for and no others. */
+export interface FakeEvent {
+	ruleId: string;
+	description: string;
+	source: string;
+	action: string;
+	sampleInterval: number;
+	/** `2026-11-13T10:00:00Z`. */
+	datetime: string;
+}
+
+export interface FakeZone {
+	id: string;
+	name: string;
+	status: string;
+	plan: string;
+	/** Whether the token has Analytics › Read on this zone. */
+	analytics: boolean;
+	/** `YYYY-MM-DD` to what happened. A day left out had nothing acted on. */
+	days: Record<string, FakeDay>;
+	events: FakeEvent[];
+	eventsEnabled: boolean;
+	maxPageSize: number;
+}
+
 interface FakeAccount {
 	token: string;
 	insights: FakeInsight[];
+	zones: FakeZone[];
 	/** An answer to give instead of the insights, such as 500. */
 	status?: number;
+	/** Answer GraphQL with Cloudflare's `budget` error, as an account over its limit does. */
+	budget?: boolean;
+}
+
+/** A GraphQL request that reached the stand-in. */
+export interface SeenQuery {
+	query: string;
+	variables: Record<string, unknown>;
+	rateLimitType: string | null;
 }
 
 interface FakeRepository {
@@ -76,13 +118,170 @@ export function startUpstreams() {
 	const repositories = new Map<string, FakeRepository>();
 	const advisories = new Map<string, FakeAdvisory>();
 	const seen: Seen[] = [];
+	const queries: SeenQuery[] = [];
 	/** Set to make OSV fail, as when it is down. */
 	const osv = { down: false };
 	/** While set, Cloudflare answers only once it is done, as a slow account does. */
 	const hold: { until: Promise<void> | null } = { until: null };
 
+	/** GraphQL, as Cloudflare answers it: HTTP 200 with errors beside the data. */
+	async function graphql(request: Request, account: FakeAccount | undefined): Promise<Response> {
+		const body = (await request.json()) as { query: string; variables: Record<string, unknown> };
+		queries.push({
+			query: body.query,
+			variables: body.variables,
+			rateLimitType: request.headers.get("x-rate-limit-type"),
+		});
+		if (!account || request.headers.get("authorization") !== `Bearer ${account.token}`) {
+			return Response.json({ success: false }, { status: 403 });
+		}
+		if (account.budget) {
+			return Response.json({
+				data: null,
+				errors: [{ message: "Zone has exceeded its rate limit", extensions: { code: "budget" } }],
+			});
+		}
+		const { variables } = body;
+		if (Array.isArray(variables.zones)) {
+			const tags = variables.zones as string[];
+			if (tags.length > 10) {
+				return Response.json({ data: null, errors: [{ message: "too many zones requested" }] });
+			}
+			const since = String(variables.since).slice(0, 10);
+			const until = String(variables.until).slice(0, 10);
+			const refused = tags.filter(
+				(tag) => !account.zones.some((zone) => zone.id === tag && zone.analytics),
+			);
+			const zones = tags.flatMap((tag) => {
+				const zone = account.zones.find((one) => one.id === tag && one.analytics);
+				if (!zone) return [];
+				const groups = (pick: (day: FakeDay) => Record<string, unknown>[]) =>
+					Object.entries(zone.days)
+						.filter(([date]) => date >= since && date < until)
+						.flatMap(([date, day]) =>
+							pick(day).map(({ count, ...dimensions }) => ({
+								count,
+								dimensions: { date, ...dimensions },
+							})),
+						);
+				return [
+					{
+						zoneTag: tag,
+						byAction: groups((day) =>
+							day.actions.map((row) => ({
+								securityAction: row.action,
+								securitySource: row.source,
+								count: row.count,
+							})),
+						),
+						byCountry: groups((day) =>
+							(day.countries ?? []).map((row) => ({
+								securityAction: row.action,
+								clientCountryName: row.name,
+								count: row.count,
+							})),
+						),
+						byHost: groups((day) =>
+							(day.hosts ?? []).map((row) => ({
+								securityAction: row.action,
+								clientRequestHTTPHost: row.name,
+								count: row.count,
+							})),
+						),
+					},
+				];
+			});
+			return Response.json({
+				data: { viewer: { accounts: [{ zones }] } },
+				errors:
+					refused.length > 0
+						? [{ message: `zones [${refused.join(", ")}] are not authorized` }]
+						: null,
+			});
+		}
+		const zone = account.zones.find((one) => one.id === variables.zone);
+		if (!zone?.analytics) {
+			return Response.json({
+				data: null,
+				errors: [
+					{
+						message:
+							"Actor does not have permission 'com.cloudflare.api.account.zone.analytics.read'",
+					},
+				],
+			});
+		}
+		if (body.query.includes("settings {")) {
+			return Response.json({
+				data: {
+					viewer: {
+						zones: [
+							{
+								settings: {
+									firewallEventsAdaptive: {
+										enabled: zone.eventsEnabled,
+										maxPageSize: zone.maxPageSize,
+									},
+								},
+							},
+						],
+					},
+				},
+			});
+		}
+		const since = String(variables.since);
+		const until = String(variables.until);
+		const inclusive = body.query.includes("datetime_leq");
+		const rows = zone.events
+			.filter(
+				(event) =>
+					event.datetime >= since && (inclusive ? event.datetime <= until : event.datetime < until),
+			)
+			.sort((a, b) => (a.datetime < b.datetime ? 1 : a.datetime > b.datetime ? -1 : 0))
+			.slice(0, Number(variables.limit));
+		return Response.json({ data: { viewer: { zones: [{ firewallEventsAdaptive: rows }] } } });
+	}
+
+	function zonesList(request: Request, account: FakeAccount): Response {
+		if (request.headers.get("authorization") !== `Bearer ${account.token}`) {
+			return Response.json({ success: false }, { status: 403 });
+		}
+		const url = new URL(request.url);
+		const page = Number(url.searchParams.get("page") ?? 1);
+		const perPage = Number(url.searchParams.get("per_page") ?? 20);
+		return Response.json({
+			success: true,
+			result: account.zones.slice((page - 1) * perPage, page * perPage).map((zone) => ({
+				id: zone.id,
+				name: zone.name,
+				status: zone.status,
+				plan: { name: zone.plan },
+			})),
+			result_info: {
+				page,
+				per_page: perPage,
+				total_pages: Math.max(1, Math.ceil(account.zones.length / perPage)),
+			},
+		});
+	}
+
 	async function cloudflare(request: Request, path: string): Promise<Response> {
 		await hold.until;
+		if (path === "/client/v4/graphql") {
+			// The nested query names the account; the single-zone ones name a zone of it.
+			const probe = (await request.clone().json()) as { variables: Record<string, unknown> };
+			const byAccount = accounts.get(String(probe.variables.account));
+			const byZone = [...accounts.values()].find((one) =>
+				one.zones.some((zone) => zone.id === probe.variables.zone),
+			);
+			return graphql(request, byAccount ?? byZone);
+		}
+		if (path === "/client/v4/zones") {
+			const account = accounts.get(new URL(request.url).searchParams.get("account.id") ?? "");
+			return account
+				? zonesList(request, account)
+				: Response.json({ success: false }, { status: 403 });
+		}
 		const match = /^\/client\/v4\/accounts\/([0-9a-f]{32})\/security-center\/insights$/.exec(path);
 		const account = match?.[1] ? accounts.get(match[1]) : undefined;
 		if (!account) return Response.json({ success: false }, { status: 403 });
@@ -207,6 +406,8 @@ export function startUpstreams() {
 		hold,
 		/** Every request that reached a stand-in, oldest first. */
 		seen,
+		/** The GraphQL queries among them, with their variables. */
+		queries,
 		hosts,
 		/** The Worker's settings that point it here. */
 		settings: {
@@ -216,8 +417,27 @@ export function startUpstreams() {
 		},
 		/** A Cloudflare account that accepts this token. */
 		addAccount(accountId: string, token: string, insights: FakeInsight[] = []) {
-			accounts.set(accountId, { token, insights });
+			accounts.set(accountId, { token, insights, zones: [] });
 			return accounts.get(accountId) as FakeAccount;
+		},
+		/** A zone of an account, which a test fills with days and events. */
+		addZone(accountId: string, name: string, fields: Partial<FakeZone> = {}) {
+			const account = accounts.get(accountId);
+			if (!account) throw new Error("add the account first");
+			const zone: FakeZone = {
+				id: crypto.randomUUID().replaceAll("-", ""),
+				name,
+				status: "active",
+				plan: "Free Website",
+				analytics: true,
+				days: {},
+				events: [],
+				eventsEnabled: true,
+				maxPageSize: 10_000,
+				...fields,
+			};
+			account.zones.push(zone);
+			return zone;
 		},
 		/** A repository, as `owner/name`, that accepts this token. */
 		addRepository(name: string, token: string, id: number, lockfiles: Record<string, string> = {}) {

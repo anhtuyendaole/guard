@@ -18,8 +18,9 @@ through an OpenID Connect provider), workspaces with members and invitations, a 
 who decides who may make an account, and connections: admins connect a Cloudflare account or a
 GitHub repository with a token, sealed under `SECRETS_KEY`, and scans (daily, and on "Scan now")
 turn Security Insights and vulnerable dependencies into findings that members read and admins
-dismiss. WAF and bot aggregates, Track issues and Agents pull requests from findings, email and MCP
-come in later steps.
+dismiss. Daily counts of each zone's WAF and bot activity (a Traffic page, and a finding when a day
+spikes) are stored as aggregates only. Track issues and Agents pull requests from findings, email and
+MCP come in later steps.
 
 Read [docs/architecture.md](docs/architecture.md) before changing auth, the deployment's sign-up
 rules, or anything about connections, sealing and scans.
@@ -29,7 +30,7 @@ rules, or anything about connections, sealing and scans.
 | Path              | What lives there                                                          |
 | ----------------- | ------------------------------------------------------------------------- |
 | `apps/web`        | The Worker: TanStack Start UI, Better Auth, rate limiting, email, D1      |
-| `packages/scan`   | What scans read: Security Insights, GitHub, lockfiles, OSV. No bindings   |
+| `packages/scan`   | What scans read: Security Insights, zone traffic, GitHub, lockfiles, OSV  |
 | `docs/`           | Architecture and self-hosting                                             |
 | `scripts/`        | Repository tooling (`doctor`)                                             |
 | `.claude/skills/` | Step-by-step playbooks for recurring tasks (plain Markdown, any agent)    |
@@ -90,8 +91,10 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    `SECRETS_KEY`; without a usable key connecting is refused), opened only inside a scan or a
    check, and pages see at most its last four characters (`token_hint`). Never log one, return one
    or put one in an error, and never store one anywhere but `connection.token_sealed`.
-3. **Traffic data is stored as aggregates only.** Counts by rule, action, country and time. Never
-   an IP address, a user agent or a request path, however briefly, and never in a log.
+3. **Traffic data is stored as aggregates only.** Counts by rule, action, country, host and time
+   (`traffic_count`). Never an IP address, a user agent or a request path, however briefly, never in
+   a log and never in a query: `packages/scan/src/traffic.ts` names the few fields it asks Cloudflare
+   for, and two tests fail if one that identifies a visitor appears.
 4. **Workspaces are private.** Every server function that reads or changes workspace data checks
    the caller's membership in D1 first (`currentMember` in `apps/web/src/server/access.ts`).
    Non-members get the same "not found" as a missing workspace.

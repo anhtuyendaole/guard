@@ -45,8 +45,8 @@ or a repository only once an admin has connected it: see the next section.
 An owner or admin connects a **Cloudflare account** (its id and an account API token) or a **GitHub
 repository** (`owner/name` and a fine-grained token). Everyone in the workspace sees the connections
 and findings, without tokens. Guard only reads: it asks for the least access that reads (Account ›
-Security Center Insights › Read, with Zone › Security Center Insights › Read on all the account's
-zones; Contents: Read-only on one repository), and nothing in it changes a
+Security Center Insights › Read, with Zone › Security Center Insights › Read and Zone › Analytics ›
+Read on all the account's zones; Contents: Read-only on one repository), and nothing in it changes a
 setting, a rule or a file. The endpoints are `/api/connections/<workspace>` and
 `/api/findings/<workspace>` (`apps/web/src/server/connections/`), the pages are the Connections and
 Findings screens, and the schemas both agree on are in `apps/web/src/lib/connection-schemas.ts`.
@@ -61,7 +61,10 @@ Findings screens, and the schemas both agree on are in `apps/web/src/lib/connect
   token's own permissions, so a call that needs it is the only proof). The zone permission can't be
   proved this way: a token without it is accepted, and Cloudflare then answers with the account's
   own insights only, leaving out those of its zones (measured on 2026-11-14: 29 of an account's 111
-  active insights, and none of its 4 critical ones). So the form asks for both in words. GitHub: `getRepository`, then
+  active insights, and none of its 4 critical ones). So the form asks for the permissions in words.
+  The zone permission for Analytics is proved: the check also lists the account's zones and, when
+  one is active, asks it a small real GraphQL question (`probeTraffic`), and a refusal there names
+  Zone › Analytics › Read. GitHub: `getRepository`, then
   `branchHead`, which proves Contents read; the repository's id is kept, since a rename keeps it. A
   workspace has up to 50 connections (checked in the endpoint, held by the trigger
   `connection_is_capped` in `0004_connection_cap.sql`), each target once, and a repository once
@@ -122,6 +125,71 @@ Findings screens, and the schemas both agree on are in `apps/web/src/lib/connect
 - **An admin can replace a token** (`replace-token`): the new one is checked the same way, for the
   same repository, then sealed and scanned. It is how a connection that needs attention is mended
   without losing what has been dismissed.
+
+### Traffic
+
+Guard counts what a Cloudflare account's WAF and bot features did to each zone's requests, per UTC
+day, and raises a finding when a zone's day is far above its usual. It needs the zone permission
+Analytics › Read, on all zones. The code is `packages/scan/src/traffic.ts` (what is asked of
+Cloudflare), `apps/web/src/server/connections/traffic.ts` (what a scan reads, judges and writes) and
+`traffic-gateway.ts` with the Traffic page (what members see).
+
+- **What is read.** After Insights, a scan lists the account's zones (REST `GET /zones`, paged;
+  only `active` ones are kept). For the full UTC days not stored yet, from yesterday back to 8 days
+  ago (so a first scan already has the week the spike rule needs), it reads
+  `httpRequestsAdaptiveGroups` with `securityAction_neq: "unknown"`, grouped by `date`: counts by
+  action and security feature, and the top 10 countries and hosts among the mitigated requests.
+  Today is incomplete and is never read or stored. For yesterday only, and only for the 20 zones with
+  the most acted-on requests, it reads the rules that acted, from sampled events
+  (`firewallEventsAdaptive`): at most two pages of `min(10000, maxPageSize)`, each event weighted
+  by its `sampleInterval`, the top 10 by count, marked `partial` when the cap cut the day short.
+  A zone's `last_day` is the last complete day read, so a scan with nothing new to read asks
+  Cloudflare for no counts.
+- **What is stored, and what never is.** D1 holds counts and nothing that names a visitor:
+  `traffic_count` (connection, zone, UTC day, dimension `action`, `country`, `host` or `rule`, key,
+  count, and for a rule its description, source and whether it is partial) and `traffic_zone` (the
+  zones a connection last saw: id, name, plan, the first and last day of the contiguous run of days read, last failure). Both cascade from the
+  workspace and from the connection, so removing a connection removes its traffic, and a zone that
+  leaves the account takes its counts with it. A scan deletes the connection's days older than 90.
+  Guard asks only for `ruleId description source action sampleInterval datetime` of an event, and
+  never for an address, a user agent, a path, a query, a ray id or an ASN;
+  `packages/scan/test/traffic.test.ts` and `apps/web/test/traffic.test.ts` fail if a query names one,
+  or a column could hold one. Host names are the customer's own zones'. No traffic is ever logged.
+- **What was measured** on 2026-11-14, on an account of 30 Free zones, since the docs state little:
+  `firewallEventsAdaptiveGroups` is off on the Free plan (`settings` says `enabled: false` and a
+  query fails), so it is never asked for; `httpRequestsAdaptiveGroups` works on Free (30 days a
+  query, up to 10,000 groups a page, a `count` already scaled for sampling, no rule id) and its
+  `botScoreBucketBy10` is refused; `firewallEventsAdaptive` works on Free and has `ruleId`. A query
+  may name 10 zones at most, so zones are asked ten at a time, nested in the account
+  (`viewer.accounts(filter: {accountTag}).zones(filter: {zoneTag_in})`), with
+  `X-Rate-Limit-Type: account-based` so each zone has its own budget. At most four calls are in
+  flight. Errors come back as HTTP 200 with an `errors` array: a missing permission is
+  `zones [<tag>] are not authorized` or `Actor … does not have permission`, and a spent budget has
+  `extensions.code` `budget`. They become `forbidden` and `rate_limited`; only the kind is kept,
+  never the message, which may carry a token's id.
+- **It never fails the Insights.** The token's traffic failure is kept on the connection
+  (`connection.traffic_outcome`: `ok` or a failure kind) and, for a zone that failed alone, on the
+  zone (`traffic_zone.last_failure`), and the Connections and Traffic pages say what to fix. The
+  traffic is written in a batch of its own before the findings are changed, so a failing write cannot
+  keep the insights from being recorded. A failure that passes with time brings the next scan within
+  the hour; the days already read are not read again.
+- **The spike rule.** `waf_spike`, source `cloudflare`, one finding per zone, severity `low`
+  (the WAF is working; it is worth a look, not an alarm). Yesterday's mitigated requests are more
+  than 5 times the median of the 7 days before, with at least 3 of those days known and at least
+  500 mitigated requests yesterday. A known day is one Guard has read: in the run from `first_day` to
+  `last_day`, a day with no rows had nothing acted on and counts as 0, while a gap (a long pause or a
+  failing token) starts a new run so unread days are never zeros. Mitigated means the actions `block`, `challenge`, `jschallenge`,
+  `managedChallenge` and `connectionClose` (the API lists its `securityAction` values nowhere, so
+  anything else, such as `log` or `skip`, counts as the request getting through). The fingerprint is
+  `traffic:<account>:waf_spike:<zone id>`, so it is one finding while it lasts and resolves on the
+  first scan where yesterday is no longer a spike. Like an unreadable lockfile, a zone Guard could not
+  read keeps its finding open, and a connection whose traffic could not be read keeps all of its
+  traffic findings open (`held` in `scan.ts`).
+- **The Traffic page** (`/$workspace/traffic`, `GET /api/traffic/<workspace>`) is for any member and
+  answers a non-member as a missing workspace. Per zone it draws the stored days as inline SVG bars
+  with a text summary beside it, and lists yesterday's top rules (marked "sampled", or "partial"), the
+  top countries and hosts of the last seven days, and this week against last week. A zone with nothing
+  stored says why: not scanned yet, no permission, or nothing acted on.
 
 ### Words and numbers
 
@@ -270,9 +338,8 @@ People change both on `/settings/account`, through Better Auth's `/update-user` 
 This is where it is going, and it may change. What is above stays as it is: one Worker for the UI,
 the API and auth, with D1 for accounts and workspaces.
 
-- **Findings from a third source**: aggregates of WAF and bot activity per zone. (Security
-  Insights and dependency vulnerabilities are built: see "Connections, scans and findings".)
-- **Traffic data is stored as aggregates only**: counts by rule, action, country and time. Never
-  an IP address, a user agent or a request path.
+- **More traffic rules.** Only the spike is built (see "Traffic"). A rule that fires when Security
+  Insights says managed rules are off while the zone sees no WAF events waits for a measurement of
+  which insight class says so.
 - **A finding becomes a Gateweave Track issue**, or a fix pull request from Gateweave Agents.
 - **An MCP server**, so agents can read findings.
