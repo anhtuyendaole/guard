@@ -145,7 +145,7 @@ export class World {
 	async trafficZones(connectionId: string) {
 		const answer = await this.guard.db
 			.prepare(
-				"SELECT zone_id, name, plan, last_day, last_failure FROM traffic_zone WHERE connection_id = ?1 ORDER BY name",
+				"SELECT zone_id, name, plan, first_day, last_day, last_failure FROM traffic_zone WHERE connection_id = ?1 ORDER BY name",
 			)
 			.bind(connectionId)
 			.all();
@@ -153,6 +153,7 @@ export class World {
 			zone_id: string;
 			name: string;
 			plan: string | null;
+			first_day: string | null;
 			last_day: string | null;
 			last_failure: string | null;
 		}[];

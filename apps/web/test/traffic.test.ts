@@ -36,7 +36,7 @@ async function rollForward(world: World, connectionId: string) {
 	for (const sql of [
 		"UPDATE traffic_count SET day = 'x' || day WHERE connection_id = ?1",
 		"UPDATE traffic_count SET day = date(substr(day, 2), '-1 day') WHERE connection_id = ?1",
-		"UPDATE traffic_zone SET last_day = date(last_day, '-1 day') WHERE connection_id = ?1",
+		"UPDATE traffic_zone SET first_day = date(first_day, '-1 day'), last_day = date(last_day, '-1 day') WHERE connection_id = ?1",
 	]) {
 		await world.guard.db.prepare(sql).bind(connectionId).run();
 	}
@@ -111,6 +111,7 @@ describe("reading traffic", () => {
 				zone_id: zone.id,
 				name: "shop.example",
 				plan: "Free Website",
+				first_day: day(8),
 				last_day: day(1),
 				last_failure: null,
 			},
@@ -408,9 +409,6 @@ describe("the spike finding", () => {
 
 	it("needs 3 stored days before it, 500 mitigated requests, and more than 5 times the median", async () => {
 		const cases = [
-			// Too few days to know what is usual.
-			{ name: "two-days.example", before: [10, 10], yesterday: 5000, spike: false },
-			{ name: "three-days.example", before: [10, 10, 10], yesterday: 5000, spike: true },
 			// Under the floor, however large the factor.
 			{ name: "floor-499.example", before: [10, 10, 10, 10], yesterday: 499, spike: false },
 			{ name: "floor-500.example", before: [10, 10, 10, 10], yesterday: 500, spike: true },
@@ -422,6 +420,76 @@ describe("the spike finding", () => {
 			const { connection } = await connectWith(one.name, one.before, one.yesterday);
 			expect((await spikeOf(world, connection.id)).length > 0, one.name).toBe(one.spike);
 		}
+	});
+
+	it("counts a quiet day as 0, so a normally quiet zone that suddenly blocks 600 is a spike", async () => {
+		const account = nextAccount();
+		const token = cloudflareToken(12);
+		world.upstream.addAccount(account, token);
+		const zone = world.upstream.addZone(account, "quiet.example");
+		// Nothing acted on in the week before: those days have no rows at all.
+		blocked(zone, 1, 600);
+		const { connection } = await world.connectCloudflare(account, token);
+
+		const rows = await spikeOf(world, connection.id);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.title).toContain("rose to 600 yesterday, against a median of 0");
+		expect((await world.trafficRows(connection.id)).map((row) => row.day)).toEqual(
+			Array(3).fill(day(1)),
+		);
+	});
+
+	it("does not make up zeros for a gap: the run starts again at the scan's first day", async () => {
+		const account = nextAccount();
+		const token = cloudflareToken(13);
+		world.upstream.addAccount(account, token);
+		const zone = world.upstream.addZone(account, "paused.example");
+		const { connection } = await world.connectCloudflare(account, token);
+
+		// Guard was away for weeks (or its token failed): what it last read is long ago.
+		await world.guard.db
+			.prepare("UPDATE traffic_zone SET first_day = ?2, last_day = ?3 WHERE connection_id = ?1")
+			.bind(connection.id, day(40), day(30))
+			.run();
+		blocked(zone, 1, 600);
+		await world.scanDue([connection.id]);
+
+		// It read 8 days from the oldest, and those count as read; the gap does not.
+		const [row] = await world.trafficZones(connection.id);
+		expect(row?.first_day).toBe(day(8));
+		expect(row?.last_day).toBe(day(1));
+		expect(await spikeOf(world, connection.id)).toHaveLength(1);
+
+		// A scan that carries on keeps the run's start.
+		await rollForward(world, connection.id);
+		blocked(zone, 1, 0);
+		await world.scanDue([connection.id]);
+		expect((await world.trafficZones(connection.id))[0]?.first_day).toBe(day(9));
+	});
+
+	it("needs 3 known days before yesterday: a zone read for 2, both quiet, is not a spike", async () => {
+		const account = nextAccount();
+		const token = cloudflareToken(14);
+		world.upstream.addAccount(account, token);
+		const zone = world.upstream.addZone(account, "new-run.example");
+		const { connection } = await world.connectCloudflare(account, token);
+
+		// Its run is a single read day, day 3; this scan reads days 2 and 1: two before yesterday.
+		await world.guard.db
+			.prepare("UPDATE traffic_zone SET first_day = ?2, last_day = ?2 WHERE connection_id = ?1")
+			.bind(connection.id, day(3))
+			.run();
+		blocked(zone, 1, 600);
+		await world.scanDue([connection.id]);
+		expect(await spikeOf(world, connection.id)).toEqual([]);
+
+		// With one more read day it would be.
+		await world.guard.db
+			.prepare("UPDATE traffic_zone SET first_day = ?2, last_day = ?3 WHERE connection_id = ?1")
+			.bind(connection.id, day(4), day(4))
+			.run();
+		await world.scanDue([connection.id]);
+		expect(await spikeOf(world, connection.id)).toHaveLength(1);
 	});
 
 	it("counts only requests that were stopped or challenged", async () => {

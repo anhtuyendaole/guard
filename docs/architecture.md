@@ -148,7 +148,7 @@ Cloudflare), `apps/web/src/server/connections/traffic.ts` (what a scan reads, ju
 - **What is stored, and what never is.** D1 holds counts and nothing that names a visitor:
   `traffic_count` (connection, zone, UTC day, dimension `action`, `country`, `host` or `rule`, key,
   count, and for a rule its description, source and whether it is partial) and `traffic_zone` (the
-  zones a connection last saw: id, name, plan, last day read, last failure). Both cascade from the
+  zones a connection last saw: id, name, plan, the first and last day of the contiguous run of days read, last failure). Both cascade from the
   workspace and from the connection, so removing a connection removes its traffic, and a zone that
   leaves the account takes its counts with it. A scan deletes the connection's days older than 90.
   Guard asks only for `ruleId description source action sampleInterval datetime` of an event, and
@@ -175,8 +175,10 @@ Cloudflare), `apps/web/src/server/connections/traffic.ts` (what a scan reads, ju
   the hour; the days already read are not read again.
 - **The spike rule.** `waf_spike`, source `cloudflare`, one finding per zone, severity `low`
   (the WAF is working; it is worth a look, not an alarm). Yesterday's mitigated requests are more
-  than 5 times the median of the 7 days before, with at least 3 of those days stored and at least
-  500 mitigated requests yesterday. Mitigated means the actions `block`, `challenge`, `jschallenge`,
+  than 5 times the median of the 7 days before, with at least 3 of those days known and at least
+  500 mitigated requests yesterday. A known day is one Guard has read: in the run from `first_day` to
+  `last_day`, a day with no rows had nothing acted on and counts as 0, while a gap (a long pause or a
+  failing token) starts a new run so unread days are never zeros. Mitigated means the actions `block`, `challenge`, `jschallenge`,
   `managedChallenge` and `connectionClose` (the API lists its `securityAction` values nowhere, so
   anything else, such as `log` or `skip`, counts as the request getting through). The fingerprint is
   `traffic:<account>:waf_spike:<zone id>`, so it is one finding while it lasts and resolves on the

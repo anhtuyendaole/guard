@@ -167,7 +167,14 @@ export const trafficZone = sqliteTable(
 		zoneId: text("zone_id").notNull(),
 		name: text("name").notNull(),
 		plan: text("plan"),
-		/** The last complete UTC day (`YYYY-MM-DD`) read, whether or not anything was acted on in it. */
+		/**
+		 * `first_day` and `last_day` bound a contiguous run of complete UTC days (`YYYY-MM-DD`) Guard
+		 * has read, whether or not anything was acted on in them: a day in the run with no rows had
+		 * nothing acted on, and counts as 0. A gap (a long pause, a failing token) starts a new run, so
+		 * unread days are never zeros. Retention may delete counts older than `first_day`'s age; the
+		 * spike rule looks back 8 days only, so `first_day` may stay older than the oldest stored row.
+		 */
+		firstDay: text("first_day"),
 		lastDay: text("last_day"),
 		/** Why this zone's last read failed, a failure kind; null when it went well. */
 		lastFailure: text("last_failure"),

@@ -24,6 +24,7 @@ CREATE TABLE `traffic_zone` (
 	`zone_id` text NOT NULL,
 	`name` text NOT NULL,
 	`plan` text,
+	`first_day` text,
 	`last_day` text,
 	`last_failure` text,
 	`seen_at` integer NOT NULL,

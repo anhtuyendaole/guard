@@ -131,11 +131,30 @@ function median(values: readonly number[]): number {
 }
 
 /**
+ * The mitigated count of each day Guard has read of a zone, as far back as `oldest`: the days from
+ * `first` to `last` (the run it has read without a gap), each 0 unless `counts` holds it, since a
+ * day with nothing acted on stores no rows. Days outside the run are unknown and left out.
+ */
+export function knownDays(
+	counts: ReadonlyMap<string, number>,
+	first: string,
+	last: string,
+	oldest: string,
+): Map<string, number> {
+	const known = new Map<string, number>();
+	for (let day = first < oldest ? oldest : first; day <= last; day = addDays(day, 1)) {
+		known.set(day, counts.get(day) ?? 0);
+	}
+	return known;
+}
+
+/**
  * The spike finding for a zone, or null. Yesterday's mitigated requests (the actions in
  * `MITIGATED_ACTIONS`) must be more than {@link SPIKE_FACTOR} times the median of the seven days
- * before it, with at least {@link SPIKE_MIN_DAYS} of those days stored and at least
+ * before it, with at least {@link SPIKE_MIN_DAYS} of those days known (see {@link knownDays}) and at least
  * {@link SPIKE_FLOOR} mitigated requests yesterday. Severity is low: the WAF is working, and this
- * is worth a look, not an alarm. `byDay` holds the mitigated count of each stored day.
+ * is worth a look, not an alarm. `byDay` holds the mitigated count of each known day, quiet
+ * ones as 0; a day it lacks was not read.
  */
 export function spikeFinding(
 	accountId: string,
@@ -270,10 +289,11 @@ export async function readConnectionTraffic(
 	const zones = listed.filter((zone) => zone.status === "active");
 
 	const { results: knownZones } = await db.$client
-		.prepare("SELECT zone_id, last_day FROM traffic_zone WHERE connection_id = ?1")
+		.prepare("SELECT zone_id, first_day, last_day FROM traffic_zone WHERE connection_id = ?1")
 		.bind(connection.id)
-		.all<{ zone_id: string; last_day: string | null }>();
+		.all<{ zone_id: string; first_day: string | null; last_day: string | null }>();
 	const lastDay = new Map(knownZones.map((row) => [row.zone_id, row.last_day]));
+	const firstDay = new Map(knownZones.map((row) => [row.zone_id, row.first_day]));
 	const { results: storedDays } = await db.$client
 		.prepare(
 			`SELECT zone_id, day,
@@ -293,9 +313,16 @@ export async function readConnectionTraffic(
 
 	// The first day each zone still needs; none when it is up to date.
 	const needs = new Map<string, string>();
+	/** Where each zone's run of read days starts once this scan has read what it needs. */
+	const runStart = new Map<string, string>();
 	for (const zone of zones) {
-		const last = lastDay.get(zone.id);
-		const from = last && last >= oldest ? addDays(last, 1) : oldest;
+		const last = lastDay.get(zone.id) ?? null;
+		const first = firstDay.get(zone.id) ?? null;
+		// The run goes on only when this scan starts the day after it ends; a gap starts a new run,
+		// so that the days nobody read are never counted as zeros.
+		const continues = last !== null && last >= addDays(oldest, -1);
+		const from = continues ? addDays(last, 1) : oldest;
+		runStart.set(zone.id, continues ? (first ?? last) : from);
 		if (from <= yesterday) needs.set(zone.id, from);
 	}
 
@@ -374,12 +401,10 @@ export async function readConnectionTraffic(
 			kept.push(spikeFingerprint(connection.target, zone.id));
 			continue;
 		}
-		const found = spikeFinding(
-			connection.target,
-			zone,
-			mitigated.get(zone.id) ?? new Map(),
-			yesterday,
-		);
+		const first = runStart.get(zone.id) ?? oldest;
+		// Judged zones were read up to yesterday: this scan did it, or an earlier one.
+		const known = knownDays(mitigated.get(zone.id) ?? new Map(), first, yesterday, oldest);
+		const found = spikeFinding(connection.target, zone, known, yesterday);
 		if (found) findings.push(found);
 	}
 
@@ -398,6 +423,8 @@ export async function readConnectionTraffic(
 			id: zone.id,
 			name: zone.name,
 			plan: zone.plan,
+			// A failed zone keeps its run as it was.
+			firstDay: failure ? (firstDay.get(zone.id) ?? null) : (runStart.get(zone.id) ?? null),
 			lastDay: failure ? last : yesterday,
 			failure,
 		};
@@ -417,13 +444,13 @@ export async function readConnectionTraffic(
 		),
 	);
 	const upsertZones = prepare(
-		`INSERT INTO traffic_zone (connection_id, organization_id, zone_id, name, plan, last_day, last_failure, seen_at)
+		`INSERT INTO traffic_zone (connection_id, organization_id, zone_id, name, plan, first_day, last_day, last_failure, seen_at)
 		SELECT ?1, ?2, json_extract(value, '$.id'), json_extract(value, '$.name'),
-			json_extract(value, '$.plan'), json_extract(value, '$.lastDay'),
+			json_extract(value, '$.plan'), json_extract(value, '$.firstDay'), json_extract(value, '$.lastDay'),
 			json_extract(value, '$.failure'), ?3
 		FROM json_each(?4) WHERE true
 		ON CONFLICT (connection_id, zone_id) DO UPDATE SET name = excluded.name, plan = excluded.plan,
-			last_day = excluded.last_day, last_failure = excluded.last_failure, seen_at = excluded.seen_at`,
+			first_day = excluded.first_day, last_day = excluded.last_day, last_failure = excluded.last_failure, seen_at = excluded.seen_at`,
 	);
 	for (const chunk of chunks(zoneRows, ZONES_PER_STATEMENT)) {
 		statements.push(

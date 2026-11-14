@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c688b05c-66d1-4259-9c1b-5d30e4b4dd7d",
+  "id": "8ee16ed2-abcd-4b7a-b666-f2ba9a089ba2",
   "prevId": "5ec5c497-56e9-439e-8bd2-3b09113e1497",
   "tables": {
     "account": {
@@ -1265,6 +1265,13 @@
         },
         "plan": {
           "name": "plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "first_day": {
+          "name": "first_day",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
