@@ -255,16 +255,17 @@ export async function startGuard(
 		secret,
 		/**
 		 * Runs one of the Worker's Cron Triggers once, as Cloudflare would, in one copy of the Worker.
-		 * The daily one unless `cron` says another, such as the hourly `0 * * * *`.
+		 * The daily one unless `cron` says another, such as the hourly `0 * * * *`. `at` is the time the
+		 * trigger says it was scheduled for, which the Monday summary goes by.
 		 */
-		async runScheduled(isolate = 0, cron = "29 3 * * *") {
+		async runScheduled(isolate = 0, cron = "29 3 * * *", at = new Date()) {
 			const name = names[isolate];
 			if (!name) throw new Error(`There are only ${names.length} isolates`);
 			// Miniflare's Fetcher type leaves out the scheduled() workerd adds to every Worker stub.
 			const worker = (await mf.getWorker(name)) as unknown as {
 				scheduled(event: { cron: string; scheduledTime: Date }): Promise<unknown>;
 			};
-			await worker.scheduled({ cron, scheduledTime: new Date() });
+			await worker.scheduled({ cron, scheduledTime: at });
 		},
 		dispose: () => mf.dispose(),
 	};

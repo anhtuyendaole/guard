@@ -6,6 +6,8 @@ export interface Email {
 	subject: string;
 	text: string;
 	html: string;
+	/** Extra headers, such as `List-Unsubscribe`. Email Service allows only some. */
+	headers?: Record<string, string>;
 }
 
 export interface Mailer {
@@ -41,9 +43,9 @@ export function createMailer(
 		return undefined;
 	}
 	return {
-		async send({ to, subject, text, html }) {
+		async send({ to, subject, text, html, headers }) {
 			try {
-				await binding.send({ from: sender, to, subject, text, html });
+				await binding.send({ from: sender, to, subject, text, html, ...(headers && { headers }) });
 			} catch (error) {
 				// Many sends run in the background, where nothing else says why. Only the code,
 				// since Workers Logs keeps this and a message can hold the address.

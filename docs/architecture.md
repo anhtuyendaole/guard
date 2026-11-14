@@ -22,7 +22,8 @@ One Worker (`apps/web`), the same shape as Gateweave Track, Gateweave Agents and
   (`workers-address.ts`). Better Auth counts a request before anything in it can step in, so the
   request is changed before it gets there.
 - **Email** goes through Cloudflare Email Service when `EMAIL_FROM` is set: password reset,
-  verification and invitations. Without it, invitations are links to share.
+  verification, invitations, and the alerts and weekly summary of "Notifications" below. Without
+  it, invitations are links to share and nothing else is sent.
 - **What is past its time** goes once a day, on a Cron Trigger every deployment inherits from
   `wrangler.jsonc` (`apps/web/src/server/db/prune.ts`). Better Auth removes a session or a
   verification only when something looks it up, so those nobody comes back for would otherwise
@@ -266,6 +267,56 @@ functions with unit tests).
   boxes without saying so, so the connect form links to the token page and lists the permissions in
   words.
 
+### Notifications
+
+Findings reach people three ways, and the first needs nothing set up.
+
+- **A "New" badge.** The Findings item in the sidebar counts the open findings that were raised
+  since this member last opened Findings, and each such row says "New". `finding.raised_at` is when
+  a finding became news: its first scan, or the scan that found it again after more than a day
+  (`raisedAtFor` in `server/notifications/rules.ts`), so a finding that flaps within a day is not
+  news twice. `notification_preference.findings_seen_at` is the member's side, per workspace; with
+  none, they joined at `member.created_at` and see nothing from before. The page tells the server it
+  has looked once it is on screen (`POST /api/findings/<workspace>` with `seen`, open to every
+  member), never in the loader, which also runs when a link is only hovered. It sends the time its
+  list was read, so a finding a scan raised after that stays new. The sidebar asks for its count
+  (`GET /api/findings/<workspace>/new`) after every navigation.
+- **An email when a scan finds new critical or high findings.** The hourly run sends these after the
+  scans (`sendAlerts` in `server/notifications/send.ts`), so a finding from "Scan now" is told by the
+  next hour at the latest. It looks for open, undismissed, critical or high findings whose
+  `raised_at` is after their `notified_at`; a connection's first good scan sets `notified_at` as it
+  writes them, since what was already there is no alert. A workspace gets at most one such email an
+  hour (a row in `notification_log` is claimed first, in one statement, so two runs cannot both send)
+  and findings raised in between wait for the next. A finding is settled when its email is claimed,
+  so a send that fails is not retried: one alert twice is worse than none, and the page and the
+  digest still show it. Findings raised more than 7 days ago and never told (email was off) are
+  dropped from alerts. It goes to owners and admins by default and to members only when they turn it
+  on.
+- **A weekly summary.** The first hourly run on Monday from 08:00 UTC sends it, once per workspace
+  per ISO week, so a missed 08:00 run is made up by the next hour's: `notification_log` is keyed by workspace, kind and week (`2026-W47`), and the row is claimed
+  before anything is sent, so a retried or repeated run finds the week taken. It says what is open
+  by severity, what was raised and resolved in the last seven days, the newest findings, and the
+  last seven complete UTC days of WAF traffic as stopped (`block`, `connectionClose`) and challenged
+  totals, left out when no zone has been read that far. A workspace with no connection is skipped.
+  Default as for alerts.
+
+Each member has two switches per workspace (`notification_preference.alert_email` and
+`digest_email`, null meaning the role's default), in Settings, Notifications
+(`/api/notifications/<workspace>`; a member changes only their own, which is the session's, never a
+field of the request). Every email carries a link,
+`/api/unsubscribe/<kind>.<workspace>.<member>.<mac>`, and `List-Unsubscribe` with
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058) when the deployment's address is
+https. The token is an HMAC of its purpose, kind, workspace and member under `BETTER_AUTH_SECRET`,
+as Gateweave Track's inbox emails sign theirs. `GET` shows a page with a button, so that a link
+scanner changes nothing; `POST` writes 0 to that one column for a current member and never anything
+else, so a link can turn email off and nothing on. Every failure is the same 404 page, so nothing
+says whether a workspace or member exists.
+
+Email shows titles, severities, counts and the names people gave a connection or zone, never a
+token or its hint, an address, a lockfile's path or anything read from a request. The links need
+`BETTER_AUTH_URL`: the hourly run has no request to take the address from, so without it the email
+has no button and no unsubscribe link, and says where to change the setting instead.
+
 ### Words and numbers
 
 Every user-facing string of a screen sits in one object (`TEXT`) near the top of its module, and
@@ -413,6 +464,9 @@ People change both on `/settings/account`, through Better Auth's `/update-user` 
 This is where it is going, and it may change. What is above stays as it is: one Worker for the UI,
 the API and auth, with D1 for accounts and workspaces.
 
+- **More ways to be told.** Email and the badge are built (see "Notifications"). Slack, webhooks,
+  choices per severity or connection, and a push to a phone are not, and neither is an alert the
+  moment a "Scan now" finishes: it goes with the next hourly run.
 - **More rules from configuration and traffic.** Only the spike and the security level are built
   (see "Traffic" and "Protection"). A finding for managed rules being off waits for a measurement of
   which insight class says so; until then the Protection page shows it. Guard does not yet read

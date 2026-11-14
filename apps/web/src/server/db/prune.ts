@@ -30,4 +30,9 @@ export async function pruneExpired(db: Database): Promise<void> {
 	await pruneOlder(db, schema.session, schema.session.expiresAt, now);
 	await pruneOlder(db, schema.verification, schema.verification.expiresAt, now);
 	await pruneOlder(db, schema.invitation, schema.invitation.expiresAt, now);
+	// Only the alerts' hourly limit and the digest's week look at these, and both look back days.
+	await db.$client
+		.prepare("DELETE FROM notification_log WHERE sent_at < ?1")
+		.bind(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+		.run();
 }

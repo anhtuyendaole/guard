@@ -129,7 +129,7 @@ because `wrangler.jsonc` sets `keep_vars`.
 | `OIDC_CLIENT_ID`              | This deployment's client ID at the provider.                                                                       |
 | `OIDC_CLIENT_SECRET`          | Its client secret there.                                                                                           |
 | `OIDC_PROVIDER_NAME`          | What the sign-in button calls it. Unset: "single sign-on".                                                         |
-| `EMAIL_FROM`                  | Turns on email (invitations, password reset), such as `Gateweave Guard <guard@example.com>`.                       |
+| `EMAIL_FROM`                  | Turns on email (invitations, password reset, alerts), such as `Gateweave Guard <guard@example.com>`.               |
 | `LEGAL_NOTICE_URL`            | The address of your legal notice. See [below](#your-legal-pages).                                                  |
 | `PRIVACY_POLICY_URL`          | The address of your privacy policy.                                                                                |
 | `TERMS_URL`                   | The address of your terms.                                                                                         |
@@ -164,9 +164,10 @@ it, every connection needs a new token.
 **Scans** run from two Cron Triggers in `wrangler.jsonc`, both inherited by every environment: the
 daily one (`29 3 * * *`) clears what is past its time and seals tokens again after a key change, and
 the hourly one (`0 * * * *`) scans the connections whose day has passed, oldest first, at most 10 an
-hour, one after another. A deployment with more than 240 connections falls behind its day; see
-"Scans without a Queue" in [architecture.md](architecture.md). Remove the hourly trigger and nothing
-scans except "Scan now".
+hour, one after another, and then sends the emails described under [Email](#email). A deployment
+with more than 240 connections falls behind its day; see "Scans without a Queue" in
+[architecture.md](architecture.md). Remove the hourly trigger and nothing scans except "Scan now",
+and no alert or summary goes out.
 
 **What Guard asks for.** Cloudflare: an account API token with three read permissions, Account ›
 Security Center Insights › Read for the account, and, for all its zones, Zone › Security Center
@@ -212,6 +213,22 @@ Guard sends email through [Cloudflare Email Service](https://developers.cloudfla
 Onboard the sender's domain once with `pnpm wrangler email sending enable example.com`, then set
 `EMAIL_FROM` to an address on it. Without email, Guard works, but invitations have to be accepted
 from a link that an admin copies, and nobody can reset a forgotten password for themselves.
+
+**What else Guard sends.** With email on, each member can get two emails about a workspace, which
+they switch in Settings, Notifications. Owners and admins have both on until they turn them off,
+and members have both off until they turn them on:
+
+- **An alert** when a scan finds new critical or high findings: one email per workspace, at most
+  one an hour, listing each finding's title and where it is (a zone, a repository, a package). The
+  first scan of a new connection sends none, since it finds what was already there.
+- **A weekly summary** on Mondays, from 08:00 UTC: what is open by severity, what is new and resolved
+  this week, and how many requests Cloudflare's WAF and bot features stopped or challenged.
+
+Both come from the hourly Cron Trigger, so they need it. They show titles and counts, never a token,
+an address or anything from a request, and each carries a one-click unsubscribe link and the
+`List-Unsubscribe` headers. Set `BETTER_AUTH_URL` for the links: the scheduled run has no request
+to learn the address from, and without it the emails have no button and no unsubscribe link. The
+sender and the domain are the ones above; nothing else needs setting up.
 
 If someone forgets a password on a server with no email, you hold the database and can make them a
 reset link, from the repository root. Find their `id` in this list. Don't paste an address someone
