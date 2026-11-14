@@ -157,10 +157,11 @@ describe("reading traffic", () => {
 		const stored = await world.trafficZones(connection.id);
 		expect(stored).toHaveLength(51);
 		expect(stored.map((row) => row.zone_id)).not.toContain(zones[7]?.id);
-		// The connect's probe names one zone; the scan's batches name ten at most.
+		// The connect's probe names one zone; the scan's batches name ten at most. They run four at a
+		// time, so the order they reach Cloudflare in is not fixed.
 		const queries = trafficQueries(world).slice(-6);
 		const sizes = queries.map((query) => (query.variables.zones as string[]).length);
-		expect(sizes).toEqual([10, 10, 10, 10, 10, 1]);
+		expect(sizes.toSorted((a, b) => b - a)).toEqual([10, 10, 10, 10, 10, 1]);
 		for (const query of world.upstream.queries.slice(before)) {
 			expect(query.rateLimitType).toBe("account-based");
 			if ("zones" in query.variables) {
