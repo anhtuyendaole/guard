@@ -64,6 +64,13 @@
       "when": 1794659496693,
       "tag": "0008_track_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794668111292,
+      "tag": "0009_mcp_oauth",
+      "breakpoints": true
     }
   ]
 }

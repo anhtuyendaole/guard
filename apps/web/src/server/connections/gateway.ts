@@ -10,7 +10,7 @@ import {
 	type ScanSummary,
 } from "../../lib/connection-schemas";
 import { isAdminRole } from "../../lib/roles";
-import { currentMember } from "../access";
+import { type Acting, currentMember } from "../access";
 import { db } from "../auth";
 import { schema } from "../db";
 import { appOrigin } from "../origin";
@@ -90,6 +90,25 @@ export async function listConnections(slug: string): Promise<ConnectionsPage | n
 	};
 }
 
+/**
+ * A workspace's connections by name and target, which is all an assistant needs to point at one:
+ * no token, not even its hint. For someone the caller has found to belong.
+ */
+export async function connectionRefs(member: Acting) {
+	const { connection } = schema;
+	return db
+		.select({
+			id: connection.id,
+			name: connection.name,
+			kind: connection.kind,
+			target: connection.target,
+		})
+		.from(connection)
+		.where(eq(connection.organizationId, member.membership.workspaceId))
+		.orderBy(connection.addedAt, connection.id)
+		.all();
+}
+
 export async function readConnections(slug: string): Promise<Response> {
 	const page = await listConnections(slug);
 	return page ? answer(page) : notFound();
@@ -105,6 +124,37 @@ async function ownConnection(workspaceId: string, id: string) {
 		.from(connection)
 		.where(and(eq(connection.id, id), eq(connection.organizationId, workspaceId)))
 		.get();
+}
+
+/** What starting a scan comes to: its summary, or why not, in the words and status a page gets. */
+export type ScanNowOutcome =
+	| { ok: true; scan: ScanSummary }
+	| { ok: false; status: number; error: string };
+
+/**
+ * "Scan now" for a member the caller has already found to belong: owners and admins only, once in a
+ * few minutes per connection, and waiting for the scan to finish. The page's button and an
+ * assistant's `start_scan` both come here, so they cannot disagree.
+ */
+export async function scanNow(member: Acting, connectionId: string): Promise<ScanNowOutcome> {
+	const { workspaceId, role } = member.membership;
+	if (!isAdminRole(role)) {
+		return { ok: false, status: 403, error: "Only an owner or admin can change connections." };
+	}
+	const one = await ownConnection(workspaceId, connectionId);
+	if (!one) return { ok: false, status: 404, error: "Not found" };
+	if (!(await allowScanNow(one.id))) {
+		return {
+			ok: false,
+			status: 429,
+			error: "This was scanned a moment ago. Wait a few minutes to scan it again.",
+		};
+	}
+	const result = await runScan(deps(), one.id);
+	if (!result) {
+		return { ok: false, status: 409, error: "A scan of this connection is already running." };
+	}
+	return { ok: true, scan: summary(result) };
 }
 
 export async function changeConnections(request: Request, slug: string): Promise<Response> {
@@ -129,14 +179,11 @@ export async function changeConnections(request: Request, slug: string): Promise
 		case "replace-token":
 			return replaceToken(action, workspaceId);
 		case "scan": {
-			const one = await ownConnection(workspaceId, action.id);
-			if (!one) return notFound();
-			if (!(await allowScanNow(one.id))) {
-				return refused("This was scanned a moment ago. Wait a few minutes to scan it again.", 429);
+			const scanned = await scanNow(member, action.id);
+			if (!scanned.ok) {
+				return scanned.status === 404 ? notFound() : refused(scanned.error, scanned.status);
 			}
-			const result = await runScan(deps(), one.id);
-			if (!result) return refused("A scan of this connection is already running.", 409);
-			return answer({ ok: true, scan: summary(result) });
+			return answer({ ok: true, scan: scanned.scan });
 		}
 		case "remove": {
 			const { connection } = schema;

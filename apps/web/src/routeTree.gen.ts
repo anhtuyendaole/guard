@@ -22,8 +22,10 @@ import { Route as WorkspaceServerRouteImport } from './routes/$workspace/server'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as WorkspaceTrafficRouteImport } from './routes/$workspace/traffic'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
+import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as SettingsAccountRouteImport } from './routes/settings.account'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
+import { Route as WorkspaceSettingsAssistantRouteImport } from './routes/$workspace/settings.assistant'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsNotificationsRouteImport } from './routes/$workspace/settings.notifications'
 import { Route as WorkspaceSettingsTrackRouteImport } from './routes/$workspace/settings.track'
@@ -103,6 +105,11 @@ const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   path: '/invite/$invitationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsAccountRoute = SettingsAccountRouteImport.update({
   id: '/settings/account',
   path: '/settings/account',
@@ -113,6 +120,12 @@ const WorkspaceSettingsIndexRoute = WorkspaceSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsAssistantRoute =
+  WorkspaceSettingsAssistantRouteImport.update({
+    id: '/assistant',
+    path: '/assistant',
+    getParentRoute: () => WorkspaceSettingsRoute,
+  } as any)
 const WorkspaceSettingsMembersRoute =
   WorkspaceSettingsMembersRouteImport.update({
     id: '/members',
@@ -196,8 +209,10 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/settings/assistant': typeof WorkspaceSettingsAssistantRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
@@ -224,8 +239,10 @@ export interface FileRoutesByTo {
   '/$workspace/server': typeof WorkspaceServerRoute
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
   '/$workspace': typeof WorkspaceIndexRoute
+  '/$workspace/settings/assistant': typeof WorkspaceSettingsAssistantRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
@@ -255,8 +272,10 @@ export interface FileRoutesById {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/$workspace/traffic': typeof WorkspaceTrafficRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/settings/assistant': typeof WorkspaceSettingsAssistantRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/track': typeof WorkspaceSettingsTrackRoute
@@ -287,8 +306,10 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/$workspace/traffic'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/settings/account'
     | '/$workspace/'
+    | '/$workspace/settings/assistant'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/track'
@@ -315,8 +336,10 @@ export interface FileRouteTypes {
     | '/$workspace/server'
     | '/$workspace/traffic'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/settings/account'
     | '/$workspace'
+    | '/$workspace/settings/assistant'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/track'
@@ -345,8 +368,10 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/$workspace/traffic'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/settings/account'
     | '/$workspace/'
+    | '/$workspace/settings/assistant'
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/track'
@@ -370,6 +395,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
+  OauthConsentRoute: typeof OauthConsentRoute
   SettingsAccountRoute: typeof SettingsAccountRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiConnectionsWorkspaceRoute: typeof ApiConnectionsWorkspaceRoute
@@ -474,6 +500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteInvitationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/account': {
       id: '/settings/account'
       path: '/settings/account'
@@ -486,6 +519,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/$workspace/settings/'
       preLoaderRoute: typeof WorkspaceSettingsIndexRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
+    '/$workspace/settings/assistant': {
+      id: '/$workspace/settings/assistant'
+      path: '/assistant'
+      fullPath: '/$workspace/settings/assistant'
+      preLoaderRoute: typeof WorkspaceSettingsAssistantRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
     '/$workspace/settings/members': {
@@ -583,6 +623,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface WorkspaceSettingsRouteChildren {
+  WorkspaceSettingsAssistantRoute: typeof WorkspaceSettingsAssistantRoute
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsNotificationsRoute: typeof WorkspaceSettingsNotificationsRoute
   WorkspaceSettingsTrackRoute: typeof WorkspaceSettingsTrackRoute
@@ -591,6 +632,7 @@ interface WorkspaceSettingsRouteChildren {
 }
 
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
+  WorkspaceSettingsAssistantRoute: WorkspaceSettingsAssistantRoute,
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsNotificationsRoute: WorkspaceSettingsNotificationsRoute,
   WorkspaceSettingsTrackRoute: WorkspaceSettingsTrackRoute,
@@ -643,6 +685,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
+  OauthConsentRoute: OauthConsentRoute,
   SettingsAccountRoute: SettingsAccountRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiConnectionsWorkspaceRoute: ApiConnectionsWorkspaceRoute,

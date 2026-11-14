@@ -8,7 +8,7 @@ import type {
 	TrafficZoneView,
 } from "../../lib/connection-schemas";
 import { buildSeries, buildWeek } from "../../lib/traffic-series";
-import { currentMember } from "../access";
+import { type Acting, currentMember } from "../access";
 import { db } from "../auth";
 
 /** How many countries, hosts and rules a zone's card lists. */
@@ -75,7 +75,11 @@ function statusOf(zone: ZoneRow, days: number): TrafficZoneStatus {
  */
 export async function listTraffic(slug: string, now = Date.now()): Promise<TrafficPage | null> {
 	const member = await currentMember(slug);
-	if (!member) return null;
+	return member && trafficOf(member, now);
+}
+
+/** The same page for someone already known to belong, which is where an assistant's access begins. */
+export async function trafficOf(member: Acting, now = Date.now()): Promise<TrafficPage> {
 	const org = member.membership.workspaceId;
 	const yesterday = addDays(utcDay(now), -1);
 	const weekStart = addDays(yesterday, -6);
@@ -185,4 +189,40 @@ export async function listTraffic(slug: string, now = Date.now()): Promise<Traff
 export async function readTrafficPage(slug: string): Promise<Response> {
 	const page = await listTraffic(slug);
 	return page ? answer(page) : notFound();
+}
+
+/** The action Cloudflare took on requests, and how many, over the last seven days a zone was read. */
+export interface TrafficActionCount {
+	connectionId: string;
+	zoneId: string;
+	action: string;
+	count: number;
+}
+
+/**
+ * What the WAF and bot features did to each zone's requests over the same seven days as the page's
+ * countries and hosts, by action. The page only draws their sum as "stopped or challenged"; an
+ * assistant is told each. Counts only, as everything in `traffic_count`.
+ */
+export async function trafficActionsOf(
+	member: Acting,
+	now = Date.now(),
+): Promise<TrafficActionCount[]> {
+	const yesterday = addDays(utcDay(now), -1);
+	const weekStart = addDays(yesterday, -6);
+	const rows = await db.$client
+		.prepare(
+			`SELECT connection_id, zone_id, action, SUM(count) AS total
+			FROM traffic_count
+			WHERE organization_id = ?1 AND dimension = 'action' AND day >= ?2 AND day <= ?3
+			GROUP BY connection_id, zone_id, action ORDER BY total DESC, action`,
+		)
+		.bind(member.membership.workspaceId, weekStart, yesterday)
+		.all<{ connection_id: string; zone_id: string; action: string; total: number }>();
+	return rows.results.map((row) => ({
+		connectionId: row.connection_id,
+		zoneId: row.zone_id,
+		action: row.action,
+		count: row.total,
+	}));
 }

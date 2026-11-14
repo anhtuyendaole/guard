@@ -122,7 +122,7 @@ because `wrangler.jsonc` sets `keep_vars`.
 | Name                          | What it does                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `BETTER_AUTH_SECRET`          | Signs sessions. Required.                                                                                          |
-| `BETTER_AUTH_URL`             | The address people use, such as `https://guard.example.com`. Inferred from each request when unset.                |
+| `BETTER_AUTH_URL`             | The address people use, such as `https://guard.example.com`. Inferred when unset, and then MCP is off.             |
 | `GITHUB_CLIENT_ID`            | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.                                                       |
 | `GITHUB_CLIENT_SECRET`        | The client secret of the same GitHub OAuth app.                                                                    |
 | `OIDC_ISSUER`                 | Turns on an OpenID Connect provider, with the two below. See [below](#sign-in-through-an-openid-connect-provider). |
@@ -140,6 +140,28 @@ because `wrangler.jsonc` sets `keep_vars`.
 | `CLOUDFLARE_API_URL`          | For tests and mirrors: where Cloudflare's API is reached. Unset: `https://api.cloudflare.com/client/v4`.           |
 | `GITHUB_API_URL`              | For tests and mirrors: where GitHub's API is reached. Unset: `https://api.github.com`.                             |
 | `OSV_API_URL`                 | For tests and mirrors: where OSV is reached. Unset: `https://api.osv.dev/v1`.                                      |
+
+### Connect an AI assistant
+
+Guard has an MCP server at `https://<your-guard>/mcp`. It needs `BETTER_AUTH_URL` set to your
+public address, because the sign-in an assistant does is bound to it: without that, `/mcp` answers
+404. Apply the migrations (`pnpm run deploy` does), since it adds tables for the sign-in.
+
+In Claude Code:
+
+```sh
+claude mcp add --transport http guard https://guard.example.com/mcp
+```
+
+In Claude.ai or another client, add `https://guard.example.com/mcp` as a remote MCP server. The
+client registers itself, sends the person to Guard to sign in, and asks them to allow it on a page
+that names the app. Settings, AI assistant, shows the address with a copy button.
+
+The assistant acts as the person who allowed it, in every workspace they belong to, and can do what
+the Findings and Traffic pages let that person do: read findings, and for an owner or admin dismiss
+one and start a scan. What it reads goes to the assistant, so connect only ones you trust. It never
+sees a connection's token. There are no keys for jobs with no browser yet. See "MCP" in
+[architecture.md](architecture.md).
 
 ### Connections and SECRETS_KEY
 

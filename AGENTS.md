@@ -20,7 +20,7 @@ GitHub repository with a token, sealed under `SECRETS_KEY`, and scans (daily, an
 turn Security Insights and vulnerable dependencies into findings that members read and admins
 dismiss. Daily counts of each zone's WAF and bot activity (a Traffic page, and a finding when a day
 spikes) are stored as aggregates only. Track issues and Agents pull requests from findings, email and
-MCP come in later steps.
+an MCP server (`/mcp`, OAuth sign-in as the person, six tools) are built too.
 
 Read [docs/architecture.md](docs/architecture.md) before changing auth, the deployment's sign-up
 rules, or anything about connections, sealing and scans.
@@ -100,7 +100,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    left out of the schemas in `packages/scan/src/protection.ts`, so it is stripped at the boundary,
    and no column holds it; tests fail if one is stored, returned or shown.
 4. **Workspaces are private.** Every server function that reads or changes workspace data checks
-   the caller's membership in D1 first (`currentMember` in `apps/web/src/server/access.ts`).
+   the caller's membership in D1 first (`currentMember` in `apps/web/src/server/access.ts`, or
+   `findMembership` for `/mcp`, which takes an OAuth access token and never a session cookie).
    Non-members get the same "not found" as a missing workspace.
 5. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.
