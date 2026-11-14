@@ -8,6 +8,31 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/guard/releases) carries the same
 notes. Publishing a release deploys it.
 
+## [0.2.0] - 2026-11-14
+
+Guard can now be used from an AI assistant. A person pastes Guard's `/mcp` address into Claude
+Code, Claude or any assistant that speaks MCP, signs in and allows it, and the assistant can read
+their findings and traffic, and do what their role lets them on the pages.
+
+### Added
+
+- **An MCP server at `/mcp`.** Signed in through OAuth, with no key to copy: the assistant
+  registers itself, the person signs in and sees a consent page that names the app and where the
+  grant goes. A token acts as the person who allowed it, in every workspace they belong to, and
+  each call checks their membership. Tools: `list_workspaces`, `list_findings` (the page's
+  filters, with a cursor), `get_finding`, `traffic_summary`, and for owners and admins
+  `dismiss_finding` (with a reason) and `start_scan`. No answer carries a token, its hint or a
+  rule's expression. Session cookies are never accepted there, and calls are rate limited per
+  person and app. Settings has an "AI assistant" tab with the address and the `claude mcp add`
+  line. ([#15](https://github.com/gateweavehq/guard/pull/15))
+
+### If you run your own
+
+- The migration `0009_mcp_oauth.sql` adds the tables of the OAuth plugins; `pnpm run deploy`
+  applies it.
+- `/mcp` is on only when `BETTER_AUTH_URL` is set to the address people open Guard at. See
+  [docs/self-hosting.md](docs/self-hosting.md).
+
 ## [0.1.0] - 2026-11-14
 
 The first release of Gateweave Guard: security in one place for teams on Cloudflare. It reads a
