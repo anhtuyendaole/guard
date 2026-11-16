@@ -23,7 +23,8 @@ spikes) are stored as aggregates only. Track issues and Agents pull requests fro
 an MCP server (`/mcp`, OAuth sign-in as the person, six tools) are built too.
 
 Read [docs/architecture.md](docs/architecture.md) before changing auth, the deployment's sign-up
-rules, or anything about connections, sealing and scans.
+rules, anything about connections, sealing and scans, or how D1 is asked ("When a query of D1
+fails").
 
 ## Repository map
 
@@ -121,6 +122,14 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 10. **Migrations are append-only.** Generate them with Drizzle Kit and commit them. Never edit a
     migration that has been merged. Follow `.claude/skills/schema-change/SKILL.md`.
 11. **Secrets stay local.** Never commit `.dev.vars` or print its contents.
+12. **A statement's text holds no value.** Everything that asks D1 goes through `createDb`, which
+    logs a failed statement's text and throws an error without it ("When a query of D1 fails" in
+    `docs/architecture.md`), for what is asked of the binding through `db.$client` as well. So
+    values are bound: no `sql.raw` and no hand-written statement with anything in its text but the
+    code's own words, and nothing reaches `env.DB` but through `createDb`. Never read a database
+    error's message to decide an answer, and never show or log Drizzle's own error or D1's. An
+    answer that depends on a trigger having refused asks `refusedBy`, and a trigger that refuses
+    with new words is added to `REFUSALS`, both in `apps/web/src/server/db/query-failure.ts`.
 
 ## Code style
 

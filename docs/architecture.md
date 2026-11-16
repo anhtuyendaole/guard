@@ -459,6 +459,103 @@ client and signs in in the browser. There is no key to copy.
 - **The consent page** is a page like the others: the same security headers and policy, nothing
   cached, light and dark. `oauth` is a reserved workspace slug.
 
+### When a query of D1 fails
+
+Everything in the Worker that asks D1 asks through `createDb` (`apps/web/src/server/db/index.ts`),
+which `server/auth` calls once: Better Auth and its plugins, the pages' server functions and
+endpoints, `/mcp`, the unsubscribe link and the two scheduled runs. Much of it asks the binding
+itself rather than Drizzle, through `db.$client`: the scans, traffic, protection, notifications
+and what assistants were allowed. `createDb` wraps the binding before it gives it to Drizzle, so
+`db.$client` is the wrapped one and both of the following hold for it too. Nothing else may reach
+`env.DB`. The rate limits' Durable Objects are not part of this: their storage is inside the
+object, with no network between a query and its answer.
+
+- **A read that fails for a moment is sent again**, up to three times in all
+  (`apps/web/src/server/db/retry-reads.ts`), before a page or a session check is told. D1 can fail
+  so, and so can the local runtime under load, where one failed read of a session makes a
+  signed-in person's page a 500. Only a single `select` is sent again, on the database or on a
+  session of it (`withSession`): a write may have happened although its answer was lost, and a
+  batch, or a text with a second statement after a `;`, may hold writes. A statement that writes
+  and answers with rows is a write too, so the `update … returning` that takes a connection for a
+  scan, the one that takes a finding to file it in Track and the one that marks findings as told
+  by email each run once, as do the inserts that take a workspace's turn for an alert or a digest:
+  a read sent again never makes a scan, an issue or an email happen twice. And only for a failure
+  Cloudflare's D1 error list says to retry (a lost connection, the database's object reset or
+  updated, a replica cut off, a node that could not be reached), or the local runtime's own.
+  Everything else is the caller's at once: an overloaded database is not helped by more requests,
+  and a failure nobody recognises is not known to be safe to repeat. The waits are about 25 and
+  100 ms, each times a random factor between 0.5 and 1.5, so reads that failed together do not
+  come back together. Each resend is logged by a fixed name for the failure and the attempt's
+  number, never with D1's words, which can carry what a row held. A read that works is sent once
+  and waits for nothing.
+- **A query that failed says nothing of its statement.** Drizzle's own error is `Failed query:
+  select … params: …`, with every value the statement was given, and whoever catches an error
+  tends to log it or show it. Better Auth logged a session read that failed, the token among its
+  values, and a refresh token's lookup with the stored token. A page whose read failed showed the
+  statement and its values. An endpoint that catches nothing left it to the runtime, which logs an
+  uncaught error by its message: a token that could not be replaced was logged sealed, beside its
+  last four characters, against invariant 2. So `createDb` throws a `DatabaseError` instead
+  (`apps/web/src/server/db/query-failure.ts`), whose message is `A database query failed
+  (reference 1a2b3c4d)` and nothing else. For Drizzle it is made where its session prepares a
+  query, the one place every builder, `db.query`, `db.get`, `db.all`, `db.run` and a transaction
+  go through.
+- **What is asked of the binding itself fails the same way** (`failingPlainly` in the same file).
+  D1's own error has no statement and no values, but it is D1's words, which nothing promises hold
+  nothing of a row, and `/mcp` answered an assistant with them when it could not read what the
+  person allowed. Each of `first`, `all`, `raw` and `run`, a batch, and a session's statements
+  throw the `DatabaseError`; a query through Drizzle passes both layers and is logged once.
+- **The log has what the error leaves out**, once per failure: `d1: a query failed (<kind>),
+  reference <reference>: <statement>`. The statement is the text with its `?`, cut at 600
+  characters, never the values, and a batch names no statement. The app writes no value into a
+  statement's text (a `sql` template binds what it is given, and `sql.raw` and the hand-written
+  statements interpolate only the code's own constants, such as a column's name), which has to
+  stay so. The kind is D1's code at the start of its words, SQLite's at their end, a name for each
+  thing D1 says in fixed words (the passing ones of `retry-reads.ts`, and `overloaded`,
+  `queued-too-long`, `queue-full`, `cpu-reset`, `memory-reset`, `storage-timeout`,
+  `response-too-large`, `too-many-api-requests`, `too-many-variables`, `syntax-error`), a
+  constraint or a missing table or column by the schema's names, and what a trigger of the
+  migrations refused with (`a workspace must keep an owner`, `sign-up is closed here`, `a server
+  must keep its owner`, `the sign-up list is full`, `a workspace may have at most 50
+  connections`). Those are quoted only right after D1's code: never D1's words as they came, since
+  the same words further in may be what a row held. A trigger with new words is added to that
+  list, which a test checks against the migrations.
+- **Nothing reads a database error's message to decide what to answer.** An address that has an
+  account, a workspace address that is taken and an only owner are asked about before the write,
+  or asked about again after it failed, as deleting an account does when the trigger refuses its
+  batch. Adding to the sign-up list once looked for the trigger's words in the error's message. It
+  asks the failure's kind now (`refusedBy`), which names a trigger's refusal only where D1 put
+  SQLite's words right after its code, so the list is called full exactly when the trigger
+  refused. Counting the list again would not do: an insert that was written while its answer was
+  lost can leave the list full with the entry on it. Connecting an account catches whatever its
+  insert throws and says the account is connected already or the workspace full, without reading
+  it. So the answers are what they were.
+  The error's cause is an error that says the kind only, which Better Auth's oauth-provider reads
+  to tell a database not migrated yet (`no such table`) from a real failure when it seeds
+  `oauth_resource`.
+- **A scan that cannot write records nothing and lets its connection go.** Everything a scan
+  writes is one batch, sent once, so a failure leaves the findings as they were. The scan logs
+  `scan: could not record DatabaseError` beside the `d1:` line, clears `scan_started_at`, and
+  leaves `next_scan_at` alone, so the next hour scans the connection again. What it found is the
+  batch's values and is in neither line. A failed read of the stored traffic or protection only
+  leaves that part unjudged, as an upstream's failure does. The hourly run's own first read, and
+  the daily run's deletes, fail the run, which the runtime records by the error's message.
+- **A page shows no error's message.** `RouteError` says that the page could not be loaded, and
+  the reference if the failure has one, which it looks for in the error's causes too. The
+  workspace's pages ask server functions for what they show, and of a server function's error
+  only the message crosses to the browser. One whose reference is in a cause, as Better Auth's
+  `Failed to get session` is, leaves with the reference added to its message
+  (`apps/web/src/start.ts`). A dialog or a toast still shows the message of what a server function
+  or Better Auth answered, which for a failed query is that sentence or nothing. The endpoints
+  under `/api/` answer 500 without a word of the error, and an assistant's tool is told `Guard
+  could not do that just now`, as it was before.
+
+None of what `query-failure.ts` reaches for in Drizzle is in its public types. With a session it
+does not know, `createDb` throws as the Worker starts, and with a prepared query sent some other
+way, at the first query: either is better than the statements being in the errors again. A
+deployment without a database (a branch's Preview) is left as Drizzle made it, so it starts and
+answers its 503. The schema generator's configuration (`auth/cli.ts`) asks nothing, and makes its
+database without `createDb`, which refuses a stand-in that is no binding.
+
 ### Words and numbers
 
 Every user-facing string of a screen sits in one object (`TEXT`) near the top of its module, and

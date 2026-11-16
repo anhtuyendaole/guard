@@ -306,7 +306,11 @@ export class World {
 		return result.body;
 	}
 
-	/** Makes a connection due, and runs the hourly trigger once. */
+	/**
+	 * Makes a connection due, and runs the hourly trigger once, as on any day but a Monday: from
+	 * 08:00 UTC on a Monday that run also sends the weekly summary, so a test that counts
+	 * summaries, and says itself when they are due, would count one more on that day alone.
+	 */
 	async scanDue(ids: string[], isolate = 0) {
 		for (const id of ids) {
 			await this.guard.db
@@ -314,7 +318,9 @@ export class World {
 				.bind(id)
 				.run();
 		}
-		await this.guard.runScheduled(isolate, HOURLY);
+		const at = new Date();
+		if (at.getUTCDay() === 1) at.setUTCDate(at.getUTCDate() + 1);
+		await this.guard.runScheduled(isolate, HOURLY, at);
 	}
 
 	async connectionRow(id: string) {
