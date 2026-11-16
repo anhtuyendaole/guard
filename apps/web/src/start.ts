@@ -1,4 +1,4 @@
-import { createMiddleware, createStart } from "@tanstack/react-start";
+import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
 import { referenceIn } from "./lib/error-reference";
 
 /**
@@ -21,4 +21,21 @@ const keepReference = createMiddleware({ type: "function" }).server(async ({ nex
 	}
 });
 
-export const startInstance = createStart(() => ({ functionMiddleware: [keepReference] }));
+/**
+ * The framework's own guard on server functions, listed because a start instance replaces its
+ * default request middleware: without an instance every server function gets this, and with one
+ * that names no `requestMiddleware` none does. It answers 403 to a server function's request
+ * unless the browser says it is from this origin: `Sec-Fetch-Site: same-origin`, or without that
+ * header an `Origin` that is this one, or without both a `Referer` here. A request with none of
+ * the three is refused too. A session cookie comes along wherever a request is from, so this is
+ * what keeps another site from asking as the person. Pages, the routes under `/api/` and `/mcp` are
+ * not server functions and are left to their own checks.
+ */
+const sameOriginServerFunctions = createCsrfMiddleware({
+	filter: (ctx) => ctx.handlerType === "serverFn",
+});
+
+export const startInstance = createStart(() => ({
+	requestMiddleware: [sameOriginServerFunctions],
+	functionMiddleware: [keepReference],
+}));
