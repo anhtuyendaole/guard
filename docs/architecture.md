@@ -544,7 +544,11 @@ object, with no network between a query and its answer.
   workspace's pages ask server functions for what they show, and of a server function's error
   only the message crosses to the browser. One whose reference is in a cause, as Better Auth's
   `Failed to get session` is, leaves with the reference added to its message
-  (`apps/web/src/start.ts`). A dialog or a toast still shows the message of what a server function
+  (`apps/web/src/start.ts`). That file also lists the framework's guard on server functions
+  (`createCsrfMiddleware`, for `handlerType === "serverFn"`) as its request middleware, because a
+  start instance replaces the framework's default request middleware, which is that guard: left
+  out, a server function would answer a request from another site, with the person's cookie, as
+  it answers the app. A dialog or a toast still shows the message of what a server function
   or Better Auth answered, which for a failed query is that sentence or nothing. The endpoints
   under `/api/` answer 500 without a word of the error, and an assistant's tool is told `Guard
   could not do that just now`, as it was before.
