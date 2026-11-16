@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/guard/releases) carries the same
 notes. Publishing a release deploys it.
 
+## [0.3.2] - 2026-11-16
+
+Puts back a guard that v0.3.1 dropped by mistake. There is no migration in this release.
+
+### Fixed
+
+- **A server function's request from another origin is refused again.** The framework refuses
+  such a request unless the browser says it comes from the app's own origin. v0.3.1 added a file
+  that replaced the framework's default without listing that guard, so for a few hours it did not
+  run. Guard's server functions only read, and what changes anything goes through routes with
+  their own origin check, so nothing could be changed through the gap; a link on another site
+  could have run a read whose answer only the person's own browser saw.
+  ([#22](https://github.com/gateweavehq/guard/pull/22))
+
+### If you run your own
+
+- **If you run v0.3.1, update.**
+
 ## [0.3.1] - 2026-11-16
 
 A database read that fails in passing is asked again instead of becoming an error, and a query
