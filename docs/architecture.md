@@ -519,12 +519,16 @@ object, with no network between a query and its answer.
   connections`). Those are quoted only right after D1's code: never D1's words as they came, since
   the same words further in may be what a row held. A trigger with new words is added to that
   list, which a test checks against the migrations.
-- **Nothing reads a database error to decide what to answer.** An address that has an account, a
-  workspace address that is taken and an only owner are asked about before the write, or asked
-  about again after it failed, as deleting an account does when the trigger refuses its batch.
-  Adding to the sign-up list once looked for the trigger's words in the error; it counts the list
-  again now. Connecting an account catches whatever its insert throws and says the account is
-  connected already or the workspace full, without reading it. So the answers are what they were.
+- **Nothing reads a database error's message to decide what to answer.** An address that has an
+  account, a workspace address that is taken and an only owner are asked about before the write,
+  or asked about again after it failed, as deleting an account does when the trigger refuses its
+  batch. Adding to the sign-up list once looked for the trigger's words in the error's message. It
+  asks the failure's kind now (`refusedBy`), which names a trigger's refusal only where D1 put
+  SQLite's words right after its code, so the list is called full exactly when the trigger
+  refused. Counting the list again would not do: an insert that was written while its answer was
+  lost can leave the list full with the entry on it. Connecting an account catches whatever its
+  insert throws and says the account is connected already or the workspace full, without reading
+  it. So the answers are what they were.
   The error's cause is an error that says the kind only, which Better Auth's oauth-provider reads
   to tell a database not migrated yet (`no such table`) from a real failure when it seeds
   `oauth_resource`.

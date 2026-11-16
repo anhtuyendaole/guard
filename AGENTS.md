@@ -127,9 +127,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
     `docs/architecture.md`), for what is asked of the binding through `db.$client` as well. So
     values are bound: no `sql.raw` and no hand-written statement with anything in its text but the
     code's own words, and nothing reaches `env.DB` but through `createDb`. Never read a database
-    error's message to decide an answer, and never show or log Drizzle's own error or D1's. A
-    trigger that refuses with new words is added to `REFUSALS` in
-    `apps/web/src/server/db/query-failure.ts`.
+    error's message to decide an answer, and never show or log Drizzle's own error or D1's. An
+    answer that depends on a trigger having refused asks `refusedBy`, and a trigger that refuses
+    with new words is added to `REFUSALS`, both in `apps/web/src/server/db/query-failure.ts`.
 
 ## Code style
 

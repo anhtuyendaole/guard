@@ -62,7 +62,18 @@ const REFUSALS = [
 	"a server must keep its owner",
 	"the sign-up list is full",
 	"a workspace may have at most 50 connections",
-];
+] as const;
+
+/**
+ * Whether a trigger of the migrations refused the write, in these words of its own. The one thing
+ * of a failure that may decide an answer: the kind holds a refusal only where D1 put SQLite's
+ * words right after its code (`QUOTABLE`), so it is the trigger speaking and nothing a row held.
+ * Asking the table again after the failure is not the same: a write whose answer was lost may
+ * have happened, and what the table then holds says nothing of why the failure came.
+ */
+export function refusedBy(error: unknown, refusal: (typeof REFUSALS)[number]): boolean {
+	return error instanceof DatabaseError && error.kind.split(", ").includes(refusal);
+}
 
 /**
  * What SQLite may be quoted on: a constraint or a missing table or column, and the names it gives,

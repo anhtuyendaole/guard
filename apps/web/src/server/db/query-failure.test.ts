@@ -71,8 +71,16 @@ async function thrownBy(work: () => Promise<unknown>): Promise<unknown> {
 	return undefined;
 }
 
-/** The database, with `work` done just before a statement whose text matches is sent. */
-function justBefore(d1: D1Database, text: RegExp, work: () => Promise<void>): D1Database {
+/**
+ * The database, with `work` done just before a statement whose text matches is sent. `afterwards`
+ * runs once the database has answered it, and may throw, as an answer that was lost on its way.
+ */
+function justBefore(
+	d1: D1Database,
+	text: RegExp,
+	work: () => Promise<void>,
+	afterwards: () => void = () => {},
+): D1Database {
 	const sends = new Set<PropertyKey>(["all", "raw", "first", "run"]);
 	function watched(statement: D1PreparedStatement): D1PreparedStatement {
 		return new Proxy(statement, {
@@ -83,7 +91,9 @@ function justBefore(d1: D1Database, text: RegExp, work: () => Promise<void>): D1
 				if (!sends.has(key)) return value.bind(target);
 				return async (...args: unknown[]) => {
 					await work();
-					return Reflect.apply(value, target, args);
+					const answer: unknown = await Reflect.apply(value, target, args);
+					afterwards();
+					return answer;
 				};
 			},
 		});
@@ -668,8 +678,8 @@ describe("an answer that follows a refusal by the database", () => {
 
 	// Adding to the sign-up list counts the list, then inserts. Another add arriving in between
 	// fills it, the trigger `sign_up_allow_is_capped` refuses the insert, and the answer has to
-	// stay the one that says the list is full. It was told by the trigger's words in the error,
-	// which a `DatabaseError` does not have, so the list is counted again.
+	// stay the one that says the list is full. It was told by the trigger's words in the error's
+	// message, which a `DatabaseError` does not have, so it is told by the failure's kind.
 	it("still says the sign-up list is full, when the trigger is what refused", async () => {
 		const { d1, dispose: disposeList } = await migratedD1("query-failure-list");
 		try {
@@ -707,6 +717,54 @@ describe("an answer that follows a refusal by the database", () => {
 				.prepare("SELECT count(*) AS n FROM sign_up_allow")
 				.first<{ n: number }>();
 			expect(held?.n).toBe(MAX_ALLOW_ENTRIES);
+		} finally {
+			await disposeList();
+		}
+	});
+
+	// A write may have happened although its answer was lost. With the list one short of its limit,
+	// the insert is written, D1's answer does not arrive, and the list is full with this entry on
+	// it: counting it again would tell the owner it is full, and that the entry is not there.
+	it("does not call the sign-up list full when the insert was written and its answer lost", async () => {
+		const { d1, dispose: disposeList } = await migratedD1("query-failure-list-lost");
+		try {
+			let lose = false;
+			const losing = justBefore(
+				d1,
+				/^insert into "sign_up_allow"/,
+				async () => {},
+				() => {
+					if (!lose) return;
+					lose = false;
+					throw new Error("D1_ERROR: Network connection lost.");
+				},
+			);
+			const auth = createAuth({ db: createDb(losing), secret, baseURL });
+			const owner = await signedUp(auth, "Jo", "jo@answers.test");
+			await d1
+				.prepare(
+					`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+					INSERT INTO sign_up_allow (entry, added_at, added_by)
+					SELECT 'filled-' || i || '@answers.test', 1, ?2 FROM n`,
+				)
+				.bind(MAX_ALLOW_ENTRIES - 1, owner.id)
+				.run();
+
+			lose = true;
+			printed.length = 0;
+			const answer = await addToList(auth, owner.headers, "written@answers.test");
+
+			expect(answer.status).toBe(500);
+			expect(JSON.stringify(answer.body)).not.toContain("LIST_FULL");
+			// A write, so it was not sent again, and the failure is the one D1 gave.
+			expect(failures().map(({ kind }) => kind)).toEqual(["D1_ERROR, connection-lost"]);
+			expect(logged()).not.toContain("is sent again");
+			const rows = await d1
+				.prepare(
+					"SELECT count(*) AS n, sum(entry = 'written@answers.test') AS written FROM sign_up_allow",
+				)
+				.first<{ n: number; written: number }>();
+			expect(rows).toEqual({ n: MAX_ALLOW_ENTRIES, written: 1 });
 		} finally {
 			await disposeList();
 		}

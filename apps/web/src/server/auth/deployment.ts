@@ -5,6 +5,7 @@ import { z } from "zod";
 import { domainOf, MAX_ALLOW_ENTRIES, signUpEntry, signUpNote } from "../../lib/sign-up-allow";
 import type { Database } from "../db";
 import { schema } from "../db";
+import { refusedBy } from "../db/query-failure";
 
 // "Who owns a server" in docs/architecture.md. The triggers in `0002_sign_up_hold.sql` hold this however
 // an account comes to be made. What is here asks first, to answer in words and tell the pages.
@@ -272,9 +273,8 @@ export function deploymentPlugin({ db, hasProvider }: DeploymentConfig) {
 						code: "LIST_FULL",
 						message: `The list holds at most ${MAX_ALLOW_ENTRIES.toLocaleString("en-US")} entries. Remove some first.`,
 					});
-					const isFull = async () =>
-						((await db.select({ n: count() }).from(allow).get())?.n ?? 0) >= MAX_ALLOW_ENTRIES;
-					if (await isFull()) throw full;
+					const held = await db.select({ n: count() }).from(allow).get();
+					if ((held?.n ?? 0) >= MAX_ALLOW_ENTRIES) throw full;
 					let made: { entry: string } | undefined;
 					try {
 						made = await db
@@ -289,9 +289,10 @@ export function deploymentPlugin({ db, hasProvider }: DeploymentConfig) {
 							.returning({ entry: allow.entry })
 							.get();
 					} catch (error) {
-						// The trigger holds the cap when two adds arrive together. What a failed query says
-						// decides nothing (it says a reference and no more), so the list is asked again.
-						if (await isFull()) throw full;
+						// The trigger holds the cap when two adds arrive together, and the failure's kind
+						// says when it was the trigger. Counting the list again would not: an insert that
+						// was written while its answer was lost can leave the list full with this entry on it.
+						if (refusedBy(error, "the sign-up list is full")) throw full;
 						throw error;
 					}
 					if (!made) {
