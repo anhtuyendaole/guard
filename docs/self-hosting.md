@@ -346,6 +346,16 @@ sign-up is closed. Workspaces they belonged to stay with the people still in the
 point-in-time recovery for D1 (30 days on Workers Paid, 7 on Free), and restoring D1 to a time
 before a deletion brings the person back.
 
+## When a page shows a reference
+
+A page that could not be loaded because the database did not answer says so, with a reference of
+eight characters such as `1a2b3c4d`. The page shows nothing else of the failure. Search the
+Worker's logs for the reference (Workers Logs in the dashboard, which `wrangler.jsonc` turns on, or
+`pnpm wrangler tail` while it happens): the line `d1: a query failed (…), reference 1a2b3c4d: …`
+says what kind of failure it was and which statement, without the values it was given. A scan or a
+scheduled run that failed for the same reason has such a line too. See
+[the architecture notes](architecture.md#when-a-query-of-d1-fails).
+
 ## Updating
 
 ```sh

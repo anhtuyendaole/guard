@@ -272,8 +272,9 @@ export function deploymentPlugin({ db, hasProvider }: DeploymentConfig) {
 						code: "LIST_FULL",
 						message: `The list holds at most ${MAX_ALLOW_ENTRIES.toLocaleString("en-US")} entries. Remove some first.`,
 					});
-					const held = await db.select({ n: count() }).from(allow).get();
-					if ((held?.n ?? 0) >= MAX_ALLOW_ENTRIES) throw full;
+					const isFull = async () =>
+						((await db.select({ n: count() }).from(allow).get())?.n ?? 0) >= MAX_ALLOW_ENTRIES;
+					if (await isFull()) throw full;
 					let made: { entry: string } | undefined;
 					try {
 						made = await db
@@ -288,8 +289,9 @@ export function deploymentPlugin({ db, hasProvider }: DeploymentConfig) {
 							.returning({ entry: allow.entry })
 							.get();
 					} catch (error) {
-						// The trigger holds the cap when two adds arrive together.
-						if (String(error).includes("the sign-up list is full")) throw full;
+						// The trigger holds the cap when two adds arrive together. What a failed query says
+						// decides nothing (it says a reference and no more), so the list is asked again.
+						if (await isFull()) throw full;
 						throw error;
 					}
 					if (!made) {
