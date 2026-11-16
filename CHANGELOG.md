@@ -8,6 +8,33 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/guard/releases) carries the same
 notes. Publishing a release deploys it.
 
+## [0.3.1] - 2026-11-16
+
+A database read that fails in passing is asked again instead of becoming an error, and a query
+that fails for good no longer logs or answers with its values. There is no migration in this
+release.
+
+### Fixed
+
+- **An error because one database read failed.** When a single read from D1 failed, a page, a
+  scan step or an assistant's call was an error although asking again would have worked. A plain
+  read (one `SELECT` statement) that fails with one of the errors Cloudflare documents as passing
+  is now sent up to three times, a moment apart. Writes, batches and any other error are sent
+  once, as before. ([#20](https://github.com/gateweavehq/guard/pull/20))
+- **A failed database query no longer carries its values.** When a query failed for good, the
+  error held the statement and its values. Replacing a connection's token could log the token in
+  its encrypted form with its last four characters, a failed read of a session or a refresh token
+  was logged with its value, and `/mcp` could answer an assistant with the database's own
+  message. A failure now carries a reference only. The log has the kind of failure and the
+  statement without its values under the same reference; a page shows a plain sentence with it.
+  To see whether a server ever logged one, search its logs for `Failed query:`.
+  ([#20](https://github.com/gateweavehq/guard/pull/20))
+
+### If you run your own
+
+- **Nothing to do.** If a page shows a reference, the line with the same reference in the
+  Worker's logs says what failed.
+
 ## [0.3.0] - 2026-11-14
 
 A person can see the AI assistants they allowed and take one back, effective at once.
